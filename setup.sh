@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DOTFILES="${SCRIPT_DIR}/dotfiles"
-TARGET_DOTFILES="${HOME}/dotfiles"
+TARGET_DOTFILES="${TARGET_DOTFILES:-${HOME}/6eniu5/dotfiles}"
 # Decrypted key from 6eniu5/ssh vault; per-repo git core.sshCommand uses this (no global ~/.ssh/config Host github.com).
 ESETUP_SSH_IDENTITY="${ESETUP_SSH_IDENTITY:-${HOME}/.ssh/6eniu5_id_ed25519}"
 
@@ -492,6 +492,7 @@ main() {
       -h|--help)
         echo "Usage: $0 [--skip-preflight]"
         echo "  --skip-preflight  Skip conflict / environment checks (CI or advanced users)"
+        echo "Env: TARGET_DOTFILES (default: \$HOME/6eniu5/dotfiles)"
         exit 0
         ;;
     esac
@@ -547,7 +548,7 @@ main() {
     apply_known_caveat_actions
   fi
 
-  if prompt_yes_no "Run stow to link ~/dotfiles into \$HOME?" y; then
+  if prompt_yes_no "Run stow to link ${TARGET_DOTFILES} into \$HOME?" y; then
     run_stow_all
   fi
 

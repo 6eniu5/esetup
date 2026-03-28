@@ -1,6 +1,6 @@
 # esetup
 
-Interactive macOS bootstrap: Homebrew, CLI tools, fnm/bun, optional Miniconda and SDKMAN!, and GNU Stow dotfiles under `~/dotfiles`.
+Interactive macOS bootstrap: Homebrew, CLI tools, fnm/bun, optional Miniconda and SDKMAN!, and GNU Stow dotfiles under `~/6eniu5/dotfiles` by default (override with env `TARGET_DOTFILES`).
 
 ## Usage
 
@@ -24,10 +24,10 @@ Before installing casks, the script checks for common issues:
 - **Both stacks installed** — warns if Docker.app and OrbStack are present.
 - **Rancher Desktop / Colima** — warns about overlapping container tooling.
 - **`docker info` fails** — warns if the CLI exists but the daemon/context is broken.
-- **`~/dotfiles`** — warns if the directory exists with files but is not a git repo (rsync merge).
+- **`~/6eniu5/dotfiles`** (or `TARGET_DOTFILES`) — warns if the directory exists with files but is not a git repo (rsync merge).
 - **Two Homebrew installs** — warns if both `/opt/homebrew` and `/usr/local` have `brew`.
 
-The script syncs `esetup/dotfiles/` to `~/dotfiles`, initializes git, adds submodules (`6eniu5/kickstart.nvim`, `6eniu5/tmux-sessionizer`), links `bin/.local/bin/tmux-sessionizer` into the submodule, and optionally runs `stow`.
+The script syncs `esetup/dotfiles/` to `~/6eniu5/dotfiles` (default), initializes git, adds submodules (`6eniu5/kickstart.nvim`, `6eniu5/tmux-sessionizer`), links `bin/.local/bin/tmux-sessionizer` into the submodule, and optionally runs `stow`.
 
 ## Requirements
 
@@ -36,4 +36,4 @@ The script syncs `esetup/dotfiles/` to `~/dotfiles`, initializes git, adds submo
 
 ## Dotfiles layout
 
-Stow packages live under `~/dotfiles/`: `fish`, `starship`, `wezterm`, `tmux`, `tmux-sessionizer-config`, `bin`, `nvim`.
+Stow packages live under `~/6eniu5/dotfiles/` (default): `fish`, `starship`, `wezterm`, `tmux`, `tmux-sessionizer-config`, `bin`, `nvim`.

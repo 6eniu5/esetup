@@ -1,7 +1,7 @@
 set -gx XDG_CONFIG_HOME $HOME/.config
 set -gx EDITOR nvim
 set -gx GIT_EDITOR nvim
-set -gx DOTFILES $HOME/dotfiles
+set -gx DOTFILES $HOME/6eniu5/dotfiles
 
 test -d $HOME/.local/bin; and fish_add_path $HOME/.local/bin
 test -d $HOME/.local/scripts; and fish_add_path $HOME/.local/scripts
