@@ -398,7 +398,7 @@ init_dotfiles_git() {
 
   if [[ -f "$ESETUP_SSH_IDENTITY" ]]; then
     # -F /dev/null bypasses ~/.ssh/config so its IdentityFile directives
-    # don't shadow the 6eniu5 key (see ssh repo KNOWN_ISSUES.md).
+    # don't shadow the 6eniu5 key.
     local ssh_cmd="ssh -F /dev/null -i \"$ESETUP_SSH_IDENTITY\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=\"$HOME/.ssh/known_hosts\""
     git config core.sshCommand "$ssh_cmd"
     log_info "Dotfiles repo will use ${ESETUP_SSH_IDENTITY} for git@github.com (per-repo only, ~/.ssh/config bypassed)."
@@ -532,7 +532,7 @@ main() {
   fi
 
   # Install fish before other formulas so $SHELL can point at fish for all later brew installs
-  # (see KNOWN_ISSUES.md: Homebrew caveats / completions targeting zsh).
+  # (Homebrew uses $SHELL for completion hints and caveat text).
   brew_install_formula fish "fish"
   export_shell_for_homebrew_fish
 
