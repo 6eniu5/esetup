@@ -102,13 +102,13 @@ record_caveat() {
     || [[ "$lc" == *"completions"* ]] \
     || [[ "$lc" == *"post-install"* ]] \
     || [[ "$lc" == *"post install"* ]]; then
-    if ! array_contains "$entry" "${CAVEATS_ACTION[@]}"; then
+    if ! array_contains "$entry" "${CAVEATS_ACTION[@]+"${CAVEATS_ACTION[@]}"}"; then
       CAVEATS_ACTION+=("$entry")
     fi
     return 0
   fi
 
-  if ! array_contains "$entry" "${CAVEATS_INFO[@]}"; then
+  if ! array_contains "$entry" "${CAVEATS_INFO[@]+"${CAVEATS_INFO[@]}"}"; then
     CAVEATS_INFO+=("$entry")
   fi
 }
@@ -122,7 +122,7 @@ print_caveat_summary() {
     echo "Action required caveats"
     echo "=============================="
     local item
-    for item in "${CAVEATS_ACTION[@]}"; do
+    for item in "${CAVEATS_ACTION[@]+"${CAVEATS_ACTION[@]}"}"; do
       echo
       printf '%s\n' "$item"
     done
@@ -135,7 +135,7 @@ print_caveat_summary() {
     echo "Informational caveats"
     echo "=============================="
     local info_item
-    for info_item in "${CAVEATS_INFO[@]}"; do
+    for info_item in "${CAVEATS_INFO[@]+"${CAVEATS_INFO[@]}"}"; do
       echo
       printf '%s\n' "$info_item"
     done
@@ -156,7 +156,7 @@ apply_known_caveat_actions() {
   local fish_cfg="${TARGET_DOTFILES}/fish/.config/fish/config.fish"
   local need_fish_paths=0
   local item
-  for item in "${CAVEATS_ACTION[@]}"; do
+  for item in "${CAVEATS_ACTION[@]+"${CAVEATS_ACTION[@]}"}"; do
     local lc_item
     lc_item="$(printf '%s' "$item" | tr '[:upper:]' '[:lower:]')"
     if [[ "$lc_item" == *"fish completions"* ]] || [[ "$lc_item" == *"vendor_completions.d"* ]]; then
