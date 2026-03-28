@@ -8,7 +8,44 @@ SOURCE_DOTFILES="${SCRIPT_DIR}/dotfiles"
 TARGET_DOTFILES="${TARGET_DOTFILES:-${HOME}/6eniu5/dotfiles}"
 
 log_info() { echo -e "\033[0;32m[INFO]\033[0m $*"; }
+log_warn() { echo -e "\033[0;33m[WARN]\033[0m $*"; }
 log_error() { echo -e "\033[0;31m[ERR]\033[0m $*" >&2; }
+
+# Stow a single package, automatically resolving conflicts:
+#   - stale symlinks (pointing elsewhere) are removed
+#   - real files/dirs are backed up to <path>.bak.<timestamp>
+stow_pkg() {
+  local pkg="$1"
+  local output
+  if output=$(cd "${TARGET_DOTFILES}" && stow --target="${HOME}" "$pkg" 2>&1); then
+    log_info "Stowed package: $pkg"
+    return 0
+  fi
+
+  local conflicts
+  conflicts=$(echo "$output" | grep 'existing target is not owned by stow:' \
+    | sed 's/.*existing target is not owned by stow: //' | xargs)
+
+  if [[ -z "$conflicts" ]]; then
+    log_error "Stow failed for $pkg: $output"
+    return 1
+  fi
+
+  for rel_path in $conflicts; do
+    local full="${HOME}/${rel_path}"
+    if [[ -L "$full" ]]; then
+      log_warn "Removing stale symlink: $full -> $(readlink "$full")"
+      rm "$full"
+    elif [[ -e "$full" ]]; then
+      local bak="${full}.bak.$(date +%s)"
+      log_warn "Backing up existing path: $full -> $bak"
+      mv "$full" "$bak"
+    fi
+  done
+
+  (cd "${TARGET_DOTFILES}" && stow --target="${HOME}" "$pkg")
+  log_info "Stowed package: $pkg (resolved conflicts)"
+}
 
 usage() {
   echo "Usage: $0 [--sync-only]"
@@ -56,10 +93,9 @@ mkdir -p "${HOME}/.config"
 pkgs=(fish starship wezterm tmux tmux-sessionizer-config bin nvim)
 for p in "${pkgs[@]}"; do
   if [[ -d "${TARGET_DOTFILES}/${p}" ]]; then
-    (cd "${TARGET_DOTFILES}" && stow --target="${HOME}" "$p")
-    log_info "Stowed package: $p"
+    stow_pkg "$p"
   else
-    echo -e "\033[0;33m[WARN]\033[0m Stow package dir missing: ${TARGET_DOTFILES}/${p}"
+    log_warn "Stow package dir missing: ${TARGET_DOTFILES}/${p}"
   fi
 done
 
