@@ -376,8 +376,11 @@ init_dotfiles_git() {
   [[ -d .git ]] || git init
 
   if [[ -f "$ESETUP_SSH_IDENTITY" ]]; then
-    git config core.sshCommand "ssh -i \"$ESETUP_SSH_IDENTITY\" -o IdentitiesOnly=yes"
-    log_info "Dotfiles repo will use ${ESETUP_SSH_IDENTITY} for git@github.com (per-repo only)."
+    # -F /dev/null bypasses ~/.ssh/config so its IdentityFile directives
+    # don't shadow the 6eniu5 key (see ssh repo KNOWN_ISSUES.md).
+    local ssh_cmd="ssh -F /dev/null -i \"$ESETUP_SSH_IDENTITY\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=\"$HOME/.ssh/known_hosts\""
+    git config core.sshCommand "$ssh_cmd"
+    log_info "Dotfiles repo will use ${ESETUP_SSH_IDENTITY} for git@github.com (per-repo only, ~/.ssh/config bypassed)."
   fi
 
   if [[ ! -d nvim/.config/nvim/.git ]]; then
