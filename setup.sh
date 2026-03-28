@@ -152,6 +152,27 @@ ensure_line_in_file() {
   printf '%s\n' "$line" >> "$file"
 }
 
+# Homebrew infers the target shell from $SHELL for completion install paths and caveat text.
+# Call after fish is on PATH so subsequent brew installs target fish instead of zsh.
+export_shell_for_homebrew_fish() {
+  if command -v fish &>/dev/null; then
+    SHELL="$(command -v fish)"
+    export SHELL
+    log_info "Using SHELL=${SHELL} for Homebrew (fish-targeted completions and caveats)."
+  else
+    log_warn "fish not on PATH; Homebrew will infer completion hints from your login shell."
+  fi
+}
+
+link_homebrew_completions_for_fish() {
+  command -v fish &>/dev/null || return 0
+  local fish_bin
+  fish_bin="$(command -v fish)"
+  if SHELL="$fish_bin" brew completions link 2>/dev/null; then
+    log_info "Ran: brew completions link (fish)."
+  fi
+}
+
 apply_known_caveat_actions() {
   local fish_cfg="${TARGET_DOTFILES}/fish/.config/fish/config.fish"
   local need_fish_paths=0
@@ -510,6 +531,11 @@ main() {
     log_warn "Preflight skipped (--skip-preflight)."
   fi
 
+  # Install fish before other formulas so $SHELL can point at fish for all later brew installs
+  # (see KNOWN_ISSUES.md: Homebrew caveats / completions targeting zsh).
+  brew_install_formula fish "fish"
+  export_shell_for_homebrew_fish
+
   local formulas=(
     eza zoxide starship ripgrep bat fd gnu-sed atuin lazygit gh jq stow tmux fzf fnm neovim
   )
@@ -529,7 +555,6 @@ main() {
   else
     log_info "Skipping OrbStack install (preflight choice or conflict resolution)."
   fi
-  brew_install_formula fish "fish"
 
   local fonts=(
     font-cascadia-code font-hack-nerd-font font-meslo-lg-nerd-font font-fira-code
@@ -545,6 +570,8 @@ main() {
 
   optional_miniconda
   optional_sdkman
+
+  link_homebrew_completions_for_fish
 
   print_caveat_summary
   if prompt_yes_no "Apply known caveat actions now?" n; then
