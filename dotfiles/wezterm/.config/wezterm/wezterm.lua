@@ -2,7 +2,7 @@ local wezterm = require("wezterm")
 
 return {
   font = wezterm.font_with_fallback({
-    "Cascadia Code Light",
+    { family = "Cascadia Code", weight = "Light" },
     "Vazir Code Hack",
     "MesloLGS NF",
   }),
