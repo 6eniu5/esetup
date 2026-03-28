@@ -7,10 +7,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DOTFILES="${SCRIPT_DIR}/dotfiles"
 TARGET_DOTFILES="${HOME}/dotfiles"
+# Decrypted key from 6eniu5/ssh vault; per-repo git core.sshCommand uses this (no global ~/.ssh/config Host github.com).
+ESETUP_SSH_IDENTITY="${ESETUP_SSH_IDENTITY:-${HOME}/.ssh/6eniu5_id_ed25519}"
 
 # Set by preflight_environment; 1 = do not install OrbStack cask this run
 SKIP_ORBSTACK=0
 SKIP_PREFLIGHT=0
+CAVEATS_INFO=()
+CAVEATS_ACTION=()
 
 log_info() { echo -e "\033[0;32m[INFO]\033[0m $*"; }
 log_warn() { echo -e "\033[0;33m[WARN]\033[0m $*"; }
@@ -43,6 +47,142 @@ prompt_install_or_reinstall() {
   return 0
 }
 
+array_contains() {
+  local needle="$1"
+  shift
+  local item
+  for item in "$@"; do
+    [[ "$item" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
+get_brew_caveat_json() {
+  local kind="$1"
+  local name="$2"
+  if [[ "$kind" == "formula" ]]; then
+    brew info --json=v2 --formula "$name" 2>/dev/null || true
+    return 0
+  fi
+  brew info --json=v2 --cask "$name" 2>/dev/null || true
+}
+
+record_caveat() {
+  local kind="$1"
+  local name="$2"
+
+  if ! command -v jq &>/dev/null; then
+    log_warn "jq not found; skipping caveat capture for ${name}."
+    return 0
+  fi
+
+  local raw_json
+  raw_json="$(get_brew_caveat_json "$kind" "$name")"
+  [[ -n "$raw_json" ]] || return 0
+
+  local caveat
+  if [[ "$kind" == "formula" ]]; then
+    caveat="$(printf '%s' "$raw_json" | jq -r '.formulae[0].caveats // empty' 2>/dev/null || true)"
+  else
+    caveat="$(printf '%s' "$raw_json" | jq -r '.casks[0].caveats // empty' 2>/dev/null || true)"
+  fi
+  [[ -n "$caveat" ]] || return 0
+  [[ "$caveat" == "null" ]] && return 0
+
+  local entry
+  entry="${name}: ${caveat}"
+
+  local lc
+  lc="$(printf '%s' "$caveat" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$lc" == *"path"* ]] \
+    || [[ "$lc" == *"shellenv"* ]] \
+    || [[ "$lc" == *"service"* ]] \
+    || [[ "$lc" == *"launchctl"* ]] \
+    || [[ "$lc" == *"manual"* ]] \
+    || [[ "$lc" == *"completions"* ]] \
+    || [[ "$lc" == *"post-install"* ]] \
+    || [[ "$lc" == *"post install"* ]]; then
+    if ! array_contains "$entry" "${CAVEATS_ACTION[@]}"; then
+      CAVEATS_ACTION+=("$entry")
+    fi
+    return 0
+  fi
+
+  if ! array_contains "$entry" "${CAVEATS_INFO[@]}"; then
+    CAVEATS_INFO+=("$entry")
+  fi
+}
+
+print_caveat_summary() {
+  local has_any=0
+  if [[ "${#CAVEATS_ACTION[@]}" -gt 0 ]]; then
+    has_any=1
+    echo
+    echo "=============================="
+    echo "Action required caveats"
+    echo "=============================="
+    local item
+    for item in "${CAVEATS_ACTION[@]}"; do
+      echo
+      printf '%s\n' "$item"
+    done
+  fi
+
+  if [[ "${#CAVEATS_INFO[@]}" -gt 0 ]]; then
+    has_any=1
+    echo
+    echo "=============================="
+    echo "Informational caveats"
+    echo "=============================="
+    local info_item
+    for info_item in "${CAVEATS_INFO[@]}"; do
+      echo
+      printf '%s\n' "$info_item"
+    done
+  fi
+
+  [[ "$has_any" -eq 1 ]] || log_info "No Homebrew caveats collected."
+}
+
+ensure_line_in_file() {
+  local line="$1"
+  local file="$2"
+  [[ -f "$file" ]] || touch "$file"
+  grep -Fqx "$line" "$file" && return 0
+  printf '%s\n' "$line" >> "$file"
+}
+
+apply_known_caveat_actions() {
+  local fish_cfg="${TARGET_DOTFILES}/fish/.config/fish/config.fish"
+  local need_fish_paths=0
+  local item
+  for item in "${CAVEATS_ACTION[@]}"; do
+    local lc_item
+    lc_item="$(printf '%s' "$item" | tr '[:upper:]' '[:lower:]')"
+    if [[ "$lc_item" == *"fish completions"* ]] || [[ "$lc_item" == *"vendor_completions.d"* ]]; then
+      need_fish_paths=1
+      break
+    fi
+  done
+
+  if [[ "$need_fish_paths" -eq 1 ]]; then
+    mkdir -p "$(dirname "$fish_cfg")"
+    ensure_line_in_file "" "$fish_cfg"
+    ensure_line_in_file "# Homebrew fish completion paths (auto-added from caveat actions)" "$fish_cfg"
+    ensure_line_in_file "if test -d (brew --prefix)/share/fish/completions" "$fish_cfg"
+    ensure_line_in_file "  set -p fish_complete_path (brew --prefix)/share/fish/completions" "$fish_cfg"
+    ensure_line_in_file "end" "$fish_cfg"
+    ensure_line_in_file "if test -d (brew --prefix)/share/fish/vendor_completions.d" "$fish_cfg"
+    ensure_line_in_file "  set -p fish_complete_path (brew --prefix)/share/fish/vendor_completions.d" "$fish_cfg"
+    ensure_line_in_file "end" "$fish_cfg"
+    log_info "Applied known caveat action: added Homebrew fish completion paths to ${fish_cfg}."
+  fi
+
+  if [[ "${#CAVEATS_ACTION[@]}" -gt 0 ]]; then
+    log_info "Manual caveat actions may still be needed for service/launchctl/path caveats shown above."
+  fi
+}
+
 brew_install_formula() {
   local formula="$1"
   local desc="${2:-$formula}"
@@ -51,6 +191,7 @@ brew_install_formula() {
     return 0
   fi
   brew install "$formula"
+  record_caveat formula "$formula"
 }
 
 brew_install_cask() {
@@ -60,7 +201,38 @@ brew_install_cask() {
     log_warn "Skipping cask: $cask"
     return 0
   fi
-  brew install --cask "$cask"
+
+  local output=""
+  if output="$(brew install --cask "$cask" 2>&1)"; then
+    [[ -n "$output" ]] && printf '%s\n' "$output"
+    record_caveat cask "$cask"
+    return 0
+  fi
+
+  printf '%s\n' "$output" >&2
+  if [[ "$output" == *"already an App at '"* ]]; then
+    local app_path
+    app_path="$(printf '%s\n' "$output" | sed -n "s/.*already an App at '\\([^']*\\)'.*/\\1/p" | head -n 1)"
+    if [[ -z "$app_path" ]]; then
+      log_error "Cask install failed for ${cask}."
+      return 1
+    fi
+
+    if prompt_yes_no "${app_path} already exists. Remove it and retry installing ${cask}?" n; then
+      rm -rf "$app_path"
+      brew install --cask "$cask"
+      record_caveat cask "$cask"
+      return 0
+    fi
+
+    if prompt_yes_no "Skip ${cask} and continue setup?" y; then
+      log_warn "Skipped cask due to existing app: ${cask}"
+      return 0
+    fi
+  fi
+
+  log_error "Cask install failed for ${cask}."
+  return 1
 }
 
 ensure_homebrew() {
@@ -203,6 +375,11 @@ init_dotfiles_git() {
   cd "${TARGET_DOTFILES}" || exit 1
   [[ -d .git ]] || git init
 
+  if [[ -f "$ESETUP_SSH_IDENTITY" ]]; then
+    git config core.sshCommand "ssh -i \"$ESETUP_SSH_IDENTITY\" -o IdentitiesOnly=yes"
+    log_info "Dotfiles repo will use ${ESETUP_SSH_IDENTITY} for git@github.com (per-repo only)."
+  fi
+
   if [[ ! -d nvim/.config/nvim/.git ]]; then
     rm -rf nvim/.config/nvim
     git submodule add git@github.com:6eniu5/kickstart.nvim.git nvim/.config/nvim || log_warn "Submodule nvim add failed (SSH / network). Run: git submodule add git@github.com:6eniu5/kickstart.nvim.git nvim/.config/nvim"
@@ -339,6 +516,7 @@ main() {
   # bun (try core name first)
   if prompt_install_or_reinstall "bun" "command -v bun &>/dev/null"; then
     brew install bun 2>/dev/null || brew install oven-sh/bun/bun
+    record_caveat formula bun
   fi
 
   brew_install_cask wezterm "WezTerm"
@@ -363,6 +541,11 @@ main() {
 
   optional_miniconda
   optional_sdkman
+
+  print_caveat_summary
+  if prompt_yes_no "Apply known caveat actions now?" n; then
+    apply_known_caveat_actions
+  fi
 
   if prompt_yes_no "Run stow to link ~/dotfiles into \$HOME?" y; then
     run_stow_all
