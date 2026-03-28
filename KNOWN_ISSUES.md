@@ -2,80 +2,42 @@
 
 ## Homebrew caveats target zsh instead of fish
 
-**Status:** Open  
-**Affects:** First run of `setup.sh` (before fish is the default shell)
+**Status:** Fixed (in `setup.sh`)  
+**Affects:** Was: first run of `setup.sh` before fish was the default shell
 
-### Problem
+### Problem (historical)
 
-`setup.sh` runs in bash (the shebang is `#!/usr/bin/env bash`), and the
-login shell is still zsh when Homebrew formulas are installed. Homebrew
-therefore installs shell completions into the **zsh** site-functions
-directory rather than fish:
+`setup.sh` runs in bash, and the login shell was often still zsh when Homebrew
+installed formulas. Homebrew then installed shell completions into zsh paths and
+printed zsh-oriented caveat text.
 
-```
-==> Caveats
-zsh completions have been installed to:
-  /opt/homebrew/share/zsh/site-functions
-```
+### Resolution
 
-This was observed for at least **fnm** and **bun**, but applies to any
-formula whose caveats include shell completions (e.g. eza, gh, etc.).
+1. **Install `fish` first** (immediately after preflight), before other formulas.
+2. **`export SHELL="$(command -v fish)"`** so subsequent `brew install` / cask
+   steps target fish for completions and caveat wording.
+3. **`brew completions link`** is run once after all Homebrew steps (including
+   optional Miniconda), with `SHELL` set to fish.
+4. **`apply_known_caveat_actions`** remains: it still appends Homebrew fish
+   completion paths to `config.fish` when caveat capture detects fish completion
+   hints.
 
-#### fnm install log (excerpt)
+---
 
-```
-==> Running `brew cleanup fnm`...
-Removing: /opt/homebrew/Cellar/fnm/1.38.1... (12 files, 7.5MB)
-Removing: /Users/mowens/Library/Caches/Homebrew/fnm_bottle_manifest--1.38.1-1... (7.7KB)
-Removing: /Users/mowens/Library/Caches/Homebrew/fnm--1.38.1... (3.3MB)
-==> Caveats
-zsh completions have been installed to:
-  /opt/homebrew/share/zsh/site-functions
-```
+## Actionable caveats at end of install reference the wrong shell
 
-#### bun install log (excerpt)
+**Status:** Fixed (same root cause as above)  
+**Affects:** Was: first run of `setup.sh` when `$SHELL` still implied zsh
 
-```
-==> Fetching downloads for: bun
-==> Installing bun from oven-sh/bun
-🍺  /opt/homebrew/Cellar/bun/1.3.11: 8 files, 61.1MB, built in 2 seconds
-==> Running `brew cleanup bun`...
-==> Caveats
-zsh completions have been installed to:
-  /opt/homebrew/share/zsh/site-functions
-```
+### Problem (historical)
 
-### Why it happens
+Homebrew tailored “add this to your profile” style instructions to the shell
+inferred from the environment, so users saw `.zshrc` / zsh syntax instead of
+fish.
 
-1. `setup.sh` is a bash script invoked from a zsh login session.
-2. Fish is installed *during* setup but is not the active shell yet.
-3. Homebrew detects the current shell (zsh) and installs completions
-   there.
+### Resolution
 
-### Current mitigation
-
-`setup.sh` already collects caveat output and offers to run
-`apply_known_caveat_actions`, which appends Homebrew's fish completion
-paths to `~/dotfiles/fish/.config/fish/config.fish`:
-
-```fish
-if test -d (brew --prefix)/share/fish/completions
-  set -p fish_complete_path (brew --prefix)/share/fish/completions
-end
-if test -d (brew --prefix)/share/fish/vendor_completions.d
-  set -p fish_complete_path (brew --prefix)/share/fish/vendor_completions.d
-end
-```
-
-This means fish **will** find completions that Homebrew places under its
-own prefix, but the zsh-specific caveat message is misleading — the
-completions still work in fish as long as the paths above are sourced.
-
-### Possible improvements
-
-- Set `SHELL` to the fish binary path before running `brew install` so
-  Homebrew targets fish completions directly.
-- Re-run `brew completions link` after switching the default shell to
-  fish.
-- Suppress the misleading zsh caveat output with
-  `HOMEBREW_NO_ENV_HINTS=1`.
+Setting **`SHELL` to the fish binary** before the bulk of `brew install` runs
+(see previous section) aligns caveat text with fish where Homebrew supports it.
+`apply_known_caveat_actions` still covers completion paths; ad-hoc formula text
+may still need manual translation for unusual packages.
