@@ -34,19 +34,6 @@ prompt_yes_no() {
   [[ "$ans" =~ ^[Yy] ]]
 }
 
-# Returns 0 = proceed install, 1 = skip
-prompt_install_or_reinstall() {
-  local name="$1"
-  local check_cmd="$2"
-  if eval "$check_cmd" &>/dev/null; then
-    if prompt_yes_no "${name} already present. Reinstall or proceed with setup step anyway?" n; then
-      return 0
-    fi
-    return 1
-  fi
-  return 0
-}
-
 array_contains() {
   local needle="$1"
   shift
@@ -207,9 +194,25 @@ apply_known_caveat_actions() {
 brew_install_formula() {
   local formula="$1"
   local desc="${2:-$formula}"
-  if ! prompt_install_or_reinstall "$desc" "brew list --formula \"$formula\" &>/dev/null"; then
-    log_warn "Skipping formula: $formula"
-    return 0
+  if brew list --formula "$formula" &>/dev/null; then
+    case "${BREW_IF_INSTALLED:-prompt}" in
+      skip)
+        log_info "Skipping already-installed formula: $formula"
+        return 0
+        ;;
+      upgrade)
+        log_info "Upgrading formula: $formula"
+        brew upgrade "$formula" || log_warn "brew upgrade failed for ${formula}"
+        record_caveat formula "$formula"
+        return 0
+        ;;
+      prompt|*)
+        if ! prompt_yes_no "${desc} already present. Reinstall or proceed with setup step anyway?" n; then
+          log_warn "Skipping formula: $formula"
+          return 0
+        fi
+        ;;
+    esac
   fi
   brew install "$formula"
   record_caveat formula "$formula"
@@ -218,9 +221,25 @@ brew_install_formula() {
 brew_install_cask() {
   local cask="$1"
   local desc="${2:-$cask}"
-  if ! prompt_install_or_reinstall "$desc" "brew list --cask \"$cask\" &>/dev/null"; then
-    log_warn "Skipping cask: $cask"
-    return 0
+  if brew list --cask "$cask" &>/dev/null; then
+    case "${BREW_IF_INSTALLED:-prompt}" in
+      skip)
+        log_info "Skipping already-installed cask: $cask"
+        return 0
+        ;;
+      upgrade)
+        log_info "Upgrading cask: $cask"
+        brew upgrade --cask "$cask" || log_warn "brew upgrade --cask failed for ${cask}"
+        record_caveat cask "$cask"
+        return 0
+        ;;
+      prompt|*)
+        if ! prompt_yes_no "${desc} already present. Reinstall or proceed with setup step anyway?" n; then
+          log_warn "Skipping cask: $cask"
+          return 0
+        fi
+        ;;
+    esac
   fi
 
   local output=""
@@ -449,6 +468,24 @@ optional_sdkman() {
   fish -c 'curl -sL https://raw.githubusercontent.com/jorgebucaran/fisher/main/functions/fisher.fish | source && fisher install jorgebucaran/fisher reitzig/sdkman-for-fish' || log_warn "fisher/sdkman-for-fish install failed; run in fish manually."
 }
 
+# Key 64 = "Show Spotlight search" in com.apple.symbolichotkeys; frees Cmd+Space for Raycast. Indexing unchanged.
+disable_spotlight_hotkey() {
+  log_info "Disabling Spotlight keyboard shortcut (Cmd+Space) so Raycast can use it."
+  defaults write com.apple.symbolichotkeys AppleSymbolicHotKeys -dict-add 64 \
+    '{ enabled = 0; value = { parameters = (65535, 49, 1048576); type = standard; }; }' || log_warn "defaults write for Spotlight hotkey failed."
+  log_info "Spotlight hotkey disabled. Log out and back in (or reboot) for the change to take effect."
+}
+
+optional_raycast_import() {
+  local rc="${SCRIPT_DIR}/raycast/baseline.rayconfig"
+  [[ -f "$rc" ]] || return 0
+  if ! prompt_yes_no "Import baseline Raycast config (${rc})?" n; then
+    return 0
+  fi
+  open "$rc"
+  log_info "Raycast import triggered. Follow the Raycast UI to complete."
+}
+
 stow_one_package() {
   local pkg="$1"
   local target_path
@@ -510,12 +547,29 @@ set_fish_default_shell() {
 
 main() {
   local arg
+  BREW_IF_INSTALLED=prompt
   for arg in "$@"; do
     case "$arg" in
       --skip-preflight) SKIP_PREFLIGHT=1 ;;
+      --skip-installed-brew)
+        if [[ "$BREW_IF_INSTALLED" == "upgrade" ]]; then
+          log_error "Cannot use --skip-installed-brew with --upgrade-installed-brew."
+          exit 1
+        fi
+        BREW_IF_INSTALLED=skip
+        ;;
+      --upgrade-installed-brew)
+        if [[ "$BREW_IF_INSTALLED" == "skip" ]]; then
+          log_error "Cannot use --upgrade-installed-brew with --skip-installed-brew."
+          exit 1
+        fi
+        BREW_IF_INSTALLED=upgrade
+        ;;
       -h|--help)
-        echo "Usage: $0 [--skip-preflight]"
-        echo "  --skip-preflight  Skip conflict / environment checks (CI or advanced users)"
+        echo "Usage: $0 [--skip-preflight] [--skip-installed-brew | --upgrade-installed-brew]"
+        echo "  --skip-preflight           Skip conflict / environment checks (CI or advanced users)"
+        echo "  --skip-installed-brew      Skip Homebrew formula/cask steps when already installed (no per-package prompts)"
+        echo "  --upgrade-installed-brew   Run brew update, then brew upgrade for installed formulae/casks (no per-package prompts)"
         echo "Env: TARGET_DOTFILES (default: \$HOME/6eniu5/dotfiles)"
         exit 0
         ;;
@@ -524,6 +578,11 @@ main() {
 
   log_info "Starting macOS setup (esetup)"
   ensure_homebrew
+
+  if [[ "$BREW_IF_INSTALLED" == "upgrade" ]]; then
+    log_info "Running brew update (--upgrade-installed-brew)."
+    brew update
+  fi
 
   if [[ "$SKIP_PREFLIGHT" -eq 0 ]]; then
     preflight_environment
@@ -544,7 +603,24 @@ main() {
   done
 
   # bun (try core name first)
-  if prompt_install_or_reinstall "bun" "command -v bun &>/dev/null"; then
+  if command -v bun &>/dev/null; then
+    case "$BREW_IF_INSTALLED" in
+      skip)
+        log_info "Skipping bun (already installed)."
+        ;;
+      upgrade)
+        log_info "Upgrading bun via Homebrew..."
+        brew upgrade bun 2>/dev/null || brew upgrade oven-sh/bun/bun 2>/dev/null || log_warn "bun upgrade skipped (install from Homebrew for upgrades)."
+        record_caveat formula bun
+        ;;
+      prompt|*)
+        if prompt_yes_no "bun already present. Reinstall or proceed with setup step anyway?" n; then
+          brew install bun 2>/dev/null || brew install oven-sh/bun/bun
+          record_caveat formula bun
+        fi
+        ;;
+    esac
+  else
     brew install bun 2>/dev/null || brew install oven-sh/bun/bun
     record_caveat formula bun
   fi
@@ -554,6 +630,12 @@ main() {
     brew_install_cask orbstack "OrbStack"
   else
     log_info "Skipping OrbStack install (preflight choice or conflict resolution)."
+  fi
+
+  brew_install_cask raycast "Raycast"
+  if brew list --cask raycast &>/dev/null; then
+    disable_spotlight_hotkey
+    optional_raycast_import
   fi
 
   local fonts=(
