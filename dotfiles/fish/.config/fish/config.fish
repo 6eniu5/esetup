@@ -33,9 +33,17 @@ fish_vi_key_bindings
 function fish_greeting
 end
 
-alias vim nvim
-alias ls eza
-alias cat 'bat --paging=never'
+# Prefer Homebrew CLI tools from setup.sh. Use `command cat`, `command ls`, `command grep`, `command find`, etc. for originals.
+command -v nvim >/dev/null; and alias vim nvim
+command -v eza >/dev/null; and alias ls eza
+command -v bat >/dev/null; and alias cat 'bat --paging=never'
+command -v rg >/dev/null; and alias grep rg
+command -v rg >/dev/null; and alias egrep rg
+command -v rg >/dev/null; and alias fgrep 'rg -F'
+# fd is installed as `fd`; it is not a POSIX find replacement (different flags). Use `command find` for find(1) syntax.
+command -v lazygit >/dev/null; and alias lg lazygit
+
+test -z "$MANPAGER"; and command -v bat >/dev/null; and set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"
 
 function la --wraps=ls --wraps=eza --description 'List contents of directory using eza grid'
   eza --grid --icons -a --long --header --accessed --group-directories-first $argv
