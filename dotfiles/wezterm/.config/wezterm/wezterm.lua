@@ -2,8 +2,9 @@ local wezterm = require("wezterm")
 
 return {
   font = wezterm.font_with_fallback({
-    { family = "Cascadia Code", weight = "Light" },
-    "Vazir Code Hack",
+    { family = "JetBrains Mono", weight = "Light" },
+    { family = "JetBrainsMono Nerd Font", weight = "Light" },
+    "Cascadia Code",
     "MesloLGS NF",
   }),
   font_size = 15,
