@@ -1,12 +1,10 @@
-add_newline = true
+add_newline = false
 
 [character]
 vicmd_symbol = "[█](bold yellow) "
 success_symbol = "[█](bold #CC59B0) "
 error_symbol = "[█](bold red) "
-format = """
-[╔══════════════════════════════════════$symbol](fg:#CC59B0)
-[╚═══╬▶▶](fg:#CC59B0) """
+format = " -> "
 
 [username]
 style_user = "fg:#CC99CC"
@@ -33,12 +31,7 @@ min_time = 50
 format = "⌛️[$duration](bold yellow)"
 
 [aws]
-format = "on [$symbol$profile]($style) "
-style = "bold cyan"
-symbol = "🅰 "
-
-[aws.region_aliases]
-us-east-1 = "est-1"
+disabled = true
 
 # Git
 [git_branch]

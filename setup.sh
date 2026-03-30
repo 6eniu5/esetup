@@ -558,6 +558,7 @@ main() {
 
   local fonts=(
     font-cascadia-code font-hack-nerd-font font-meslo-lg-nerd-font font-fira-code
+    font-jetbrains-mono font-jetbrains-mono-nerd-font
   )
   for fc in "${fonts[@]}"; do
     brew_install_cask "$fc" "$fc"
