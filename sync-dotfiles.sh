@@ -99,4 +99,8 @@ for p in "${pkgs[@]}"; do
   fi
 done
 
+if [[ -f "${SCRIPT_DIR}/raycast/baseline.rayconfig" ]]; then
+  log_info "Raycast config available at ${SCRIPT_DIR}/raycast/baseline.rayconfig — open it to import into Raycast."
+fi
+
 log_info "Done. Dotfiles tree: ${TARGET_DOTFILES}"
