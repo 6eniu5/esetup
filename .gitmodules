@@ -1,0 +1,3 @@
+[submodule "karabiner-manager"]
+	path = karabiner-manager
+	url = git@github.com:6eniu5/karabiner-manager.git
