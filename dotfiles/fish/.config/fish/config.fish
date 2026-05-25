@@ -43,6 +43,17 @@ command -v rg >/dev/null; and alias fgrep 'rg -F'
 # fd is installed as `fd`; it is not a POSIX find replacement (different flags). Use `command find` for find(1) syntax.
 command -v lazygit >/dev/null; and alias lg lazygit
 
+# bash-style history recall: !! = previous command, !$ = its last argument
+function _last_history_item
+  echo $history[1]
+end
+function _last_history_arg
+  set -l tokens (string split --no-empty -- ' ' $history[1])
+  echo $tokens[-1]
+end
+abbr -a '!!' --position anywhere --function _last_history_item
+abbr -a '!$' --position anywhere --function _last_history_arg
+
 test -z "$MANPAGER"; and command -v bat >/dev/null; and set -gx MANPAGER "sh -c 'col -bx | bat -l man -p'"
 
 function la --wraps=ls --wraps=eza --description 'List contents of directory using eza grid'
