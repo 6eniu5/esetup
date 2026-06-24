@@ -702,6 +702,13 @@ main() {
     optional_raycast_import
   fi
 
+  # Anthropic Claude: the desktop app (cask `claude` = Chat/Cowork/Code GUI, auto-updates)
+  # and the terminal CLI (cask `claude-code` = the `claude` binary). Separate artifacts,
+  # no single bundle. Kept brew-managed so --skip/--upgrade-installed-brew apply; a brew
+  # install also makes Claude Code defer self-updates to `brew upgrade` instead of its own.
+  brew_install_cask claude "Claude (desktop app)"
+  brew_install_cask claude-code "Claude Code (CLI)"
+
   local fonts=(
     font-cascadia-code font-hack-nerd-font font-meslo-lg-nerd-font font-fira-code
     font-jetbrains-mono font-jetbrains-mono-nerd-font
