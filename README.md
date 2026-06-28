@@ -67,3 +67,14 @@ launchctl kickstart -k "gui/$(id -u)/org.pqrs.karabiner.karabiner_console_user_s
 ## Dotfiles layout
 
 Stow packages live under `~/6eniu5/dotfiles/` (default): `fish`, `starship`, `wezterm`, `tmux`, `tmux-sessionizer-config`, `bin`, `nvim`.
+
+## Go
+
+`setup.sh` installs `go` and `tree-sitter-cli` via Homebrew; fish adds `~/go/bin` to PATH.
+In Neovim, Mason auto-installs `gopls` and `goimports` on first `.go` file; format-on-save uses goimports + gofmt.
+
+### Lessons learned
+
+- The CLI is the Homebrew formula **`tree-sitter-cli`**, not `tree-sitter` (that one is library-only, no binary). nvim-treesitter's `main` branch needs it to compile parsers, else builds fail with `ENOENT: 'tree-sitter'`.
+- nvim-treesitter is pinned to `branch = 'main'`. Use its API (`require('nvim-treesitter').install(parsers)`), **never** `require('nvim-treesitter.configs').setup{}` — that module exists only on the old `master` branch and errors on `main` (`attempt to call field 'install' (a nil value)` shows the reverse: a stale `master` checkout under a `main` spec). Fix a stale checkout: `cd ~/.local/share/nvim/lazy/nvim-treesitter && git fetch origin main && git checkout main && git reset --hard origin/main`.
+- The nvim config is a submodule of `6eniu5/kickstart.nvim` (default branch `master`); push there for new machines. `~/6eniu5/dotfiles` is a local-only stow target (no remote) — don't try to push it.
