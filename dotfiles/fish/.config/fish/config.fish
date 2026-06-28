@@ -12,6 +12,9 @@ test -d $HOME/.cargo/bin; and fish_add_path $HOME/.cargo/bin
 test -d $HOME/.bun/bin; and fish_add_path $HOME/.bun/bin
 test -d $PNPM_HOME; and fish_add_path $PNPM_HOME
 test -d $HOME/go/bin; and fish_add_path $HOME/go/bin
+# proxy.golang.org intermittently 403s on some module zips, and Go only falls
+# back to the next proxy on 404/410 (not 403), so add goproxy.io as a backstop.
+set -gx GOPROXY https://proxy.golang.org,https://goproxy.io,direct
 
 if test -x /opt/homebrew/bin/brew
   eval (/opt/homebrew/bin/brew shellenv)
