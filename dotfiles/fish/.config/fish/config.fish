@@ -11,6 +11,7 @@ test -d $HOME/.local/scripts; and fish_add_path $HOME/.local/scripts
 test -d $HOME/.cargo/bin; and fish_add_path $HOME/.cargo/bin
 test -d $HOME/.bun/bin; and fish_add_path $HOME/.bun/bin
 test -d $PNPM_HOME; and fish_add_path $PNPM_HOME
+test -d $HOME/go/bin; and fish_add_path $HOME/go/bin
 
 if test -x /opt/homebrew/bin/brew
   eval (/opt/homebrew/bin/brew shellenv)

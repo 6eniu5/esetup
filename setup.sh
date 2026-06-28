@@ -660,7 +660,7 @@ main() {
   export_shell_for_homebrew_fish
 
   local formulas=(
-    eza zoxide starship ripgrep bat fd gnu-sed atuin lazygit gh jq stow tmux fzf fnm neovim
+    eza zoxide starship ripgrep bat fd gnu-sed atuin lazygit gh jq stow tmux fzf fnm neovim go tree-sitter-cli
   )
   for f in "${formulas[@]}"; do
     brew_install_formula "$f" "$f"
