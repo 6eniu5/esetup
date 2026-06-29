@@ -650,6 +650,35 @@ setup_claude_skills() {
   bash "${SCRIPT_DIR}/scripts/install-claude-skills.sh"
 }
 
+# Homebrew 4.x prints a noisy "taps are not trusted" banner on every operation unless
+# third-party taps are explicitly trusted. Trust the specific formulae/casks we rely on
+# (preferred over whole-tap), falling back to whole-tap for taps with no single target.
+# Idempotent; only trusts taps actually present, and no-ops if `brew trust` is unavailable.
+trust_brew_taps() {
+  command -v brew &>/dev/null || return 0
+  brew commands 2>/dev/null | grep -qx trust || { log_info "brew trust unavailable; skipping tap trust."; return 0; }
+  local tapped entry tap rest
+  tapped="$(brew tap 2>/dev/null)"
+  # "<tap>|<brew trust args>"  — specific formula/cask where there's one target, else --tap.
+  local specs=(
+    "oven-sh/bun|--formula oven-sh/bun/bun"
+    "upcloudltd/tap|--formula upcloudltd/tap/upcloud-cli"
+    "glinford/tap|--cask glinford/tap/dns-easy-switcher"
+    "jesseduffield/lazygit|--tap jesseduffield/lazygit"
+    "asmvik/formulae|--tap asmvik/formulae"
+  )
+  for entry in "${specs[@]}"; do
+    tap="${entry%%|*}"; rest="${entry#*|}"
+    printf '%s\n' "$tapped" | grep -qx "$tap" || continue
+    # shellcheck disable=SC2086
+    if brew trust $rest &>/dev/null; then
+      log_info "Trusted brew tap entry: ${rest}"
+    else
+      log_warn "Could not trust brew tap entry: ${rest}"
+    fi
+  done
+}
+
 main() {
   local arg
   BREW_IF_INSTALLED=prompt
@@ -685,6 +714,7 @@ main() {
 
   log_info "Starting macOS setup (esetup)"
   ensure_homebrew
+  trust_brew_taps   # silence the Homebrew tap-trust banner before any brew install
 
   # --claude: bundle the Claude Code install with the skills setup, nothing else.
   if [[ "$CLAUDE_ONLY" -eq 1 ]]; then
