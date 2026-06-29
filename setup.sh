@@ -445,6 +445,29 @@ run_fnm_default_node() {
   fi
 }
 
+# Rust via the official rustup installer (NOT brew's keg-only `rustup`, which
+# leaves ~/.cargo/bin empty). rustup-init creates the cargo/rustc/rustfmt
+# proxies in ~/.cargo/bin and writes ~/.cargo/env{,.fish} — both of which the
+# fish config already puts on PATH / sources, so no shell changes are needed.
+# --no-modify-path: fish PATH is handled in config.fish, not the default
+# rustup profile edits. rustfmt + clippy ship with the stable profile; the
+# rust-analyzer LSP is installed by Mason inside Neovim (mirrors gopls).
+run_rustup_default_toolchain() {
+  if command -v rustc &>/dev/null && [[ -d "$HOME/.rustup/toolchains" ]]; then
+    log_info "Rust toolchain already present ($(rustc --version 2>/dev/null)). Skipping rustup-init."
+  elif prompt_yes_no "Install Rust stable toolchain via rustup (curl https://sh.rustup.rs | sh -s -- -y)?" y; then
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+      sh -s -- -y --no-modify-path --default-toolchain stable --profile default
+  else
+    return 0
+  fi
+
+  # Bring cargo/rustup proxies onto PATH for the remainder of this run.
+  [[ -f "$HOME/.cargo/env" ]] && source "$HOME/.cargo/env"
+  # Defensive: ensure formatter/linter components exist even on a minimal profile.
+  command -v rustup &>/dev/null && rustup component add rustfmt clippy 2>/dev/null || true
+}
+
 optional_karabiner_manager() {
   if ! prompt_yes_no "Configure Karabiner Elements from karabiner-manager submodule (install apps, build karabiner.json)?" n; then
     return 0
@@ -721,6 +744,7 @@ main() {
   init_dotfiles_git
 
   run_fnm_default_node
+  run_rustup_default_toolchain
 
   optional_karabiner_manager
 

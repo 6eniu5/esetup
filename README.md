@@ -73,7 +73,15 @@ Stow packages live under `~/6eniu5/dotfiles/` (default): `fish`, `starship`, `we
 `setup.sh` installs `go` and `tree-sitter-cli` via Homebrew; fish adds `~/go/bin` to PATH.
 In Neovim, Mason auto-installs `gopls` and `goimports` on first `.go` file; format-on-save uses goimports + gofmt.
 
+## Rust
+
+`setup.sh` installs the toolchain via the **official rustup installer** (`run_rustup_default_toolchain`), not Homebrew — see lesson below. fish already has `~/.cargo/bin` on PATH and sources `~/.cargo/env.fish`, so no shell changes are needed. `rustfmt` + `clippy` ship with the stable profile. In Neovim, Mason auto-installs `rust_analyzer` on first `.rs` file; format-on-save uses `rustfmt`.
+
 ### Lessons learned
+
+- Use the **official rustup installer** (`curl https://sh.rustup.rs | sh`), not `brew install rustup`. The Homebrew formula is keg-only and keeps its proxies in the keg — it leaves `~/.cargo/bin` **empty**, so nothing lands on the PATH the fish config expects. The official installer populates `~/.cargo/bin` and writes `~/.cargo/env.fish` (the exact layout config.fish was already wired for).
+
+## Go lessons learned
 
 - The CLI is the Homebrew formula **`tree-sitter-cli`**, not `tree-sitter` (that one is library-only, no binary). nvim-treesitter's `main` branch needs it to compile parsers, else builds fail with `ENOENT: 'tree-sitter'`.
 - nvim-treesitter is pinned to `branch = 'main'`. Use its API (`require('nvim-treesitter').install(parsers)`), **never** `require('nvim-treesitter.configs').setup{}` — that module exists only on the old `master` branch and errors on `main` (`attempt to call field 'install' (a nil value)` shows the reverse: a stale `master` checkout under a `main` spec). Fix a stale checkout: `cd ~/.local/share/nvim/lazy/nvim-treesitter && git fetch origin main && git checkout main && git reset --hard origin/main`.
