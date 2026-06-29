@@ -13,6 +13,8 @@ ESETUP_SSH_IDENTITY="${ESETUP_SSH_IDENTITY:-${HOME}/.ssh/6eniu5_id_ed25519}"
 # Set by preflight_environment; 1 = do not install OrbStack cask this run
 SKIP_ORBSTACK=0
 SKIP_PREFLIGHT=0
+# 1 = --claude fast path: install Claude Code + skills only, skip the rest
+CLAUDE_ONLY=0
 CAVEATS_INFO=()
 CAVEATS_ACTION=()
 
@@ -632,12 +634,29 @@ set_fish_default_shell() {
   chsh -s "$fish_path" || log_warn "chsh failed; set default shell manually."
 }
 
+# Anthropic Claude: the desktop app (cask `claude` = Chat/Cowork/Code GUI, auto-updates)
+# and the terminal CLI (cask `claude-code` = the `claude` binary). Separate artifacts,
+# no single bundle. Kept brew-managed so --skip/--upgrade-installed-brew apply; a brew
+# install also makes Claude Code defer self-updates to `brew upgrade` instead of its own.
+install_claude() {
+  brew_install_cask claude "Claude (desktop app)"
+  brew_install_cask claude-code "Claude Code (CLI)"
+}
+
+# Personal fork of mattpocock/skills (the `skills` submodule) symlinked into
+# ~/.claude/skills. The installer inits the submodule and, on re-runs, syncs from
+# upstream and pushes the fork. See docs/claude-skills/ for the full model.
+setup_claude_skills() {
+  bash "${SCRIPT_DIR}/scripts/install-claude-skills.sh"
+}
+
 main() {
   local arg
   BREW_IF_INSTALLED=prompt
   for arg in "$@"; do
     case "$arg" in
       --skip-preflight) SKIP_PREFLIGHT=1 ;;
+      --claude) CLAUDE_ONLY=1 ;;
       --skip-installed-brew)
         if [[ "$BREW_IF_INSTALLED" == "upgrade" ]]; then
           log_error "Cannot use --skip-installed-brew with --upgrade-installed-brew."
@@ -653,7 +672,8 @@ main() {
         BREW_IF_INSTALLED=upgrade
         ;;
       -h|--help)
-        echo "Usage: $0 [--skip-preflight] [--skip-installed-brew | --upgrade-installed-brew]"
+        echo "Usage: $0 [--claude] [--skip-preflight] [--skip-installed-brew | --upgrade-installed-brew]"
+        echo "  --claude                   Fast path: install Claude Code + skills only, skip everything else"
         echo "  --skip-preflight           Skip conflict / environment checks (CI or advanced users)"
         echo "  --skip-installed-brew      Skip Homebrew formula/cask steps when already installed (no per-package prompts)"
         echo "  --upgrade-installed-brew   Run brew update, then brew upgrade for installed formulae/casks (no per-package prompts)"
@@ -665,6 +685,15 @@ main() {
 
   log_info "Starting macOS setup (esetup)"
   ensure_homebrew
+
+  # --claude: bundle the Claude Code install with the skills setup, nothing else.
+  if [[ "$CLAUDE_ONLY" -eq 1 ]]; then
+    log_info "Claude bundle (--claude): installing Claude Code + skills only."
+    install_claude
+    setup_claude_skills
+    log_info "Claude + skills done."
+    return 0
+  fi
 
   if [[ "$BREW_IF_INSTALLED" == "upgrade" ]]; then
     log_info "Running brew update (--upgrade-installed-brew)."
@@ -725,12 +754,7 @@ main() {
     optional_raycast_import
   fi
 
-  # Anthropic Claude: the desktop app (cask `claude` = Chat/Cowork/Code GUI, auto-updates)
-  # and the terminal CLI (cask `claude-code` = the `claude` binary). Separate artifacts,
-  # no single bundle. Kept brew-managed so --skip/--upgrade-installed-brew apply; a brew
-  # install also makes Claude Code defer self-updates to `brew upgrade` instead of its own.
-  brew_install_cask claude "Claude (desktop app)"
-  brew_install_cask claude-code "Claude Code (CLI)"
+  install_claude
 
   local fonts=(
     font-cascadia-code font-hack-nerd-font font-meslo-lg-nerd-font font-fira-code
@@ -747,6 +771,10 @@ main() {
   run_rustup_default_toolchain
 
   optional_karabiner_manager
+
+  if prompt_yes_no "Set up Claude Code skills (fork submodule + ~/.claude/skills symlinks)?" y; then
+    setup_claude_skills
+  fi
 
   optional_miniconda
   optional_sdkman
