@@ -4,6 +4,17 @@
 
 set -euo pipefail
 
+# The PATH we were invoked with, captured before anything mutates it. `ensure_homebrew`
+# runs `eval "$(brew shellenv)"`, which prepends $(brew --prefix)/bin -- so after that
+# point `command -v X` answers "which copy does *this script* see", not "which copy does
+# the *user* run". Shadowed/Foreign are questions about the latter. See docs/adr/0002.
+ESETUP_ORIGINAL_PATH="$PATH"
+
+# Likewise for SHELL: export_shell_for_homebrew_fish sets SHELL=$(command -v fish) so
+# Homebrew emits fish completions. Anything asking "what is the user's login shell?"
+# must read this, not $SHELL -- otherwise it always answers "fish".
+ESETUP_ORIGINAL_SHELL="${SHELL:-}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOURCE_DOTFILES="${SCRIPT_DIR}/dotfiles"
 TARGET_DOTFILES="${TARGET_DOTFILES:-${HOME}/6eniu5/dotfiles}"
@@ -21,6 +32,34 @@ CLAUDE_SKILLS_ONLY=0
 OS_KIND=""
 CAVEATS_INFO=()
 CAVEATS_ACTION=()
+
+# --- Plan state (see docs/adr/0001, docs/adr/0002) --------------------------
+# What to do with an Artifact that is already Brew-owned: prompt | skip | upgrade
+IF_INSTALLED=prompt
+# 1 = --upgrade: suppress prompts. Idempotent Non-Artifacts run; destructive ones
+# become Manual entries rather than silently defaulting to "no" on a closed stdin.
+NONINTERACTIVE=0
+
+# Ownership: one bare `brew list` dump each (0.02s) instead of ~32 named probes
+# (0.37s each). Built on every run — Foreign/Shadowed matter in all modes.
+OWNED_FORMULAE=""
+OWNED_CASKS=""
+BREW_PREFIX_PATH=""
+
+# The Plan: memoized `brew outdated --json=v2 --greedy`, one TSV record per
+# Artifact with a Version Diff:  name<TAB>kind<TAB>installed<TAB>latest<TAB>pinned
+# Only built under --upgrade (it needs a slow, online `brew update`).
+# macOS ships bash 3.2 — no `declare -A` — hence a flat string + awk.
+PLAN=""
+
+# Manual: knowingly not converged, exits 0. Failed: tried and broke, exits 1.
+MANUAL_ACTIONS=()
+FAILED_ACTIONS=()
+
+# Side channels set by the detection predicates, consumed for Reason text.
+FOREIGN_PATH=""
+UNOWNED_APP=""
+RUNNING_APP=""
 
 log_info() { echo -e "\033[0;32m[INFO]\033[0m $*"; }
 log_warn() { echo -e "\033[0;33m[WARN]\033[0m $*"; }
@@ -197,88 +236,400 @@ apply_known_caveat_actions() {
   fi
 }
 
+record_manual() {
+  local entry="$1: $2"
+  array_contains "$entry" "${MANUAL_ACTIONS[@]+"${MANUAL_ACTIONS[@]}"}" && return 0
+  MANUAL_ACTIONS+=("$entry")
+}
+
+record_failed() {
+  local entry="$1: $2"
+  array_contains "$entry" "${FAILED_ACTIONS[@]+"${FAILED_ACTIONS[@]}"}" && return 0
+  FAILED_ACTIONS+=("$entry")
+}
+
+# --- Ownership --------------------------------------------------------------
+# "Installed" means exactly one thing when building a Plan: Homebrew has a receipt.
+# `command -v X` and `/Applications/X.app` are different predicates (Foreign,
+# Unowned App) and are handled separately.
+build_ownership() {
+  BREW_PREFIX_PATH="$(brew --prefix)"
+  OWNED_FORMULAE="$(brew list --formula 2>/dev/null || true)"
+  OWNED_CASKS="$(brew list --cask 2>/dev/null || true)"
+}
+
+brew_owns_formula() { printf '%s\n' "$OWNED_FORMULAE" | grep -qxF -- "$1"; }
+brew_owns_cask() { printf '%s\n' "$OWNED_CASKS" | grep -qxF -- "$1"; }
+
+path_inside_brew() {
+  case "$1" in "${BREW_PREFIX_PATH}"/*) return 0 ;; esac
+  return 1
+}
+
+# `command -v` against the invoking shell's PATH, in its original order -- the first
+# hit is the copy the user actually runs. Not `command -v`, which sees the PATH that
+# `brew shellenv` rewrote.
+resolve_in_original_path() {
+  local name="$1" dir
+  local IFS=:
+  for dir in $ESETUP_ORIGINAL_PATH; do
+    [[ -n "$dir" ]] || continue
+    if [[ -x "${dir}/${name}" ]] && [[ ! -d "${dir}/${name}" ]]; then
+      printf '%s\n' "${dir}/${name}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# --- The Plan ---------------------------------------------------------------
+# One `brew update` (the internet), one `brew outdated` (the machine, already
+# joined against the internet). We never compare two version strings ourselves.
+# No stale-metadata fallback: a Plan built from yesterday's index looks
+# authoritative and is wrong. Abort (exit 2) instead. See docs/adr/0001.
+build_plan() {
+  if ! command -v jq &>/dev/null; then
+    log_error "jq is required to build the upgrade Plan. Install jq and re-run."
+    exit 2
+  fi
+
+  log_info "Refreshing Homebrew metadata (brew update)..."
+  if ! brew update; then
+    log_error "brew update failed. Refusing to build a Plan from stale metadata."
+    exit 2
+  fi
+
+  local raw
+  if ! raw="$(brew outdated --json=v2 --greedy 2>/dev/null)"; then
+    log_error "brew outdated failed; cannot build a Plan."
+    exit 2
+  fi
+
+  PLAN="$(printf '%s' "$raw" | jq -r '
+    ((.formulae // []) | map(. + {kind: "formula"}))
+      + ((.casks // []) | map(. + {kind: "cask"}))
+    | .[]
+    | [ .name,
+        .kind,
+        ((.installed_versions // []) | join(",")),
+        (.current_version // ""),
+        (if .pinned then "pinned" else "-" end) ]
+    | @tsv')"
+
+  local n
+  n="$(printf '%s' "$PLAN" | grep -c . || true)"
+  log_info "Plan built: ${n:-0} artifact(s) with a version diff."
+}
+
+# plan_row NAME KIND -> prints the TSV record, or returns 1 if not outdated.
+plan_row() {
+  [[ -n "$PLAN" ]] || return 1
+  printf '%s\n' "$PLAN" | awk -F'\t' -v n="$1" -v k="$2" \
+    '$1 == n && $2 == k { print; f = 1; exit } END { if (!f) exit 1 }'
+}
+
+plan_field() { plan_row "$1" "$2" | cut -f"$3"; }
+plan_pinned() { [[ "$(plan_field "$1" "$2" 5)" == "pinned" ]]; }
+plan_diff() { printf '%s -> %s' "$(plan_field "$1" "$2" 3)" "$(plan_field "$1" "$2" 4)"; }
+
+# --- Foreign / Shadowed / Unowned App / Running app -------------------------
+# Foreign: brew does NOT own it, yet the name is on PATH. Detected *before*
+# installing, by name — brew cannot help us here (for an uninstalled formula
+# `brew ls` errors and the formula JSON carries no binary key). Every formula
+# where a Foreign copy is realistic has formula-name == binary-name; the
+# post-install Shadowed check catches the rest.
+is_foreign_formula() {
+  local name="$1" p
+  brew_owns_formula "$name" && return 1
+  p="$(resolve_in_original_path "$name" || true)"
+  [[ -n "$p" ]] || return 1
+  path_inside_brew "$p" && return 1
+  FOREIGN_PATH="$p"
+}
+
+# Shadowed: brew DOES own it, but the binary you run is somewhere else. Detected
+# *after* acting, from brew's own artifact list — so gnu-sed→gsed and
+# claude-code→claude are both covered with no hand-maintained map.
+formula_bin_names() { brew ls --verbose "$1" 2>/dev/null | sed -n 's|.*/bin/\([^/]*\)$|\1|p'; }
+
+# Records a Manual entry per shadowed binary. Returns 0 if the Artifact is shadowed.
+# Callers use the verdict to skip converging a copy the user never executes.
+# Safe to call twice: record_manual dedupes.
+check_shadowed_formula() {
+  local formula="$1" bin resolved found=0
+  while IFS= read -r bin; do
+    [[ -n "$bin" ]] || continue
+    resolved="$(resolve_in_original_path "$bin" || true)"
+    [[ -n "$resolved" ]] || continue
+    path_inside_brew "$resolved" && continue
+    record_manual "$formula" "shadowed — '${bin}' resolves to ${resolved}, outside ${BREW_PREFIX_PATH}"
+    found=1
+  done < <(formula_bin_names "$formula")
+  [[ "$found" -eq 1 ]]
+}
+
+cask_json() { brew info --json=v2 --cask "$1" 2>/dev/null; }
+cask_app_names() { cask_json "$1" | jq -r '.casks[0].artifacts[]?.app[]? // empty' 2>/dev/null || true; }
+cask_bin_targets() {
+  cask_json "$1" | jq -r '.casks[0].artifacts[]? | select(.binary) | .target // empty' 2>/dev/null || true
+}
+
+check_shadowed_cask() {
+  local cask="$1" target bin resolved found=0
+  command -v jq &>/dev/null || return 1
+  while IFS= read -r target; do
+    [[ -n "$target" ]] || continue
+    bin="$(basename "$target")"
+    resolved="$(resolve_in_original_path "$bin" || true)"
+    [[ -n "$resolved" ]] || continue
+    [[ "$resolved" == "$target" ]] && continue
+    record_manual "$cask" "shadowed — '${bin}' resolves to ${resolved}, not ${target}"
+    found=1
+  done < <(cask_bin_targets "$cask")
+  [[ "$found" -eq 1 ]]
+}
+
+# Unowned App: the cask flavour of Foreign. Pre-empts brew's "already an App at" failure.
+cask_unowned_app() {
+  local cask="$1" app
+  command -v jq &>/dev/null || return 1
+  brew_owns_cask "$cask" && return 1
+  while IFS= read -r app; do
+    [[ -n "$app" ]] || continue
+    if [[ -d "/Applications/${app}" ]]; then
+      UNOWNED_APP="/Applications/${app}"
+      return 0
+    fi
+  done < <(cask_app_names "$cask")
+  return 1
+}
+
+# Neither raycast nor orbstack declares a quit/uninstall stanza, so `brew upgrade
+# --cask` would swap the bundle out from under a live process. Decline instead.
+cask_app_running() {
+  local cask="$1" app
+  command -v jq &>/dev/null || return 1
+  while IFS= read -r app; do
+    [[ -n "$app" ]] || continue
+    if pgrep -qf "/Applications/${app}/Contents/MacOS/"; then
+      RUNNING_APP="$app"
+      return 0
+    fi
+  done < <(cask_app_names "$cask")
+  return 1
+}
+
+print_action_summary() {
+  if [[ "${#MANUAL_ACTIONS[@]}" -gt 0 ]]; then
+    echo
+    echo "=============================="
+    echo "Needs your attention (left unchanged)"
+    echo "=============================="
+    local item
+    for item in "${MANUAL_ACTIONS[@]+"${MANUAL_ACTIONS[@]}"}"; do
+      printf '  - %s\n' "$item"
+    done
+  fi
+
+  if [[ "${#FAILED_ACTIONS[@]}" -gt 0 ]]; then
+    echo
+    echo "=============================="
+    echo "Failed"
+    echo "=============================="
+    local fail_item
+    for fail_item in "${FAILED_ACTIONS[@]+"${FAILED_ACTIONS[@]}"}"; do
+      printf '  - %s\n' "$fail_item"
+    done
+  fi
+}
+
 brew_install_formula() {
   local formula="$1"
   local desc="${2:-$formula}"
-  if brew list --formula "$formula" &>/dev/null; then
-    case "${BREW_IF_INSTALLED:-prompt}" in
-      skip)
-        log_info "Skipping already-installed formula: $formula"
-        return 0
-        ;;
-      upgrade)
-        log_info "Upgrading formula: $formula"
-        brew upgrade "$formula" || log_warn "brew upgrade failed for ${formula}"
-        record_caveat formula "$formula"
-        return 0
-        ;;
-      prompt|*)
-        if ! prompt_yes_no "${desc} already present. Reinstall or proceed with setup step anyway?" n; then
-          log_warn "Skipping formula: $formula"
-          return 0
-        fi
-        ;;
-    esac
+  _formula_step "$formula" "$desc"
+  # Post-check: catches the freshly-installed case, and the up-to-date case where
+  # _formula_step never asked. `|| true` — a clean verdict is a nonzero return.
+  if brew_owns_formula "$formula"; then
+    check_shadowed_formula "$formula" || true
   fi
-  brew install "$formula"
-  record_caveat formula "$formula"
+  return 0
+}
+
+_formula_step() {
+  local formula="$1"
+  local desc="$2"
+
+  if ! brew_owns_formula "$formula"; then
+    if is_foreign_formula "$formula"; then
+      log_warn "${desc}: '${formula}' already on PATH at ${FOREIGN_PATH}, not Homebrew-owned."
+      record_manual "$formula" "foreign — ${FOREIGN_PATH} is on PATH but not Homebrew-owned; installing would create a second copy"
+      return 0
+    fi
+    if brew install "$formula"; then
+      OWNED_FORMULAE="${OWNED_FORMULAE}
+${formula}"
+      record_caveat formula "$formula"
+    else
+      record_failed "$formula" "brew install failed"
+    fi
+    return 0
+  fi
+
+  case "$IF_INSTALLED" in
+    skip)
+      log_info "Skipping already-installed formula: $formula"
+      return 0
+      ;;
+    upgrade)
+      if ! plan_row "$formula" formula &>/dev/null; then
+        log_info "Up to date: ${formula}"
+        return 0
+      fi
+      if plan_pinned "$formula" formula; then
+        record_manual "$formula" "pinned in Homebrew; not upgrading"
+        return 0
+      fi
+      # Brew already owns it, so `brew ls` works and we can ask *before* acting.
+      # Upgrading a copy the user never executes is wasted work, and it would make
+      # the Manual report a lie: "will not converge" must mean we did not converge.
+      if check_shadowed_formula "$formula"; then
+        log_warn "${desc}: not upgrading — you run a copy outside ${BREW_PREFIX_PATH}."
+        return 0
+      fi
+      log_info "Upgrading formula: ${formula} ($(plan_diff "$formula" formula))"
+      if brew upgrade "$formula"; then
+        record_caveat formula "$formula"
+      else
+        record_failed "$formula" "brew upgrade failed"
+      fi
+      return 0
+      ;;
+    prompt|*)
+      if ! prompt_yes_no "${desc} already present. Reinstall or proceed with setup step anyway?" n; then
+        log_warn "Skipping formula: $formula"
+        return 0
+      fi
+      if brew install "$formula"; then
+        record_caveat formula "$formula"
+      else
+        record_failed "$formula" "brew install failed"
+      fi
+      return 0
+      ;;
+  esac
 }
 
 brew_install_cask() {
   local cask="$1"
   local desc="${2:-$cask}"
-  if brew list --cask "$cask" &>/dev/null; then
-    case "${BREW_IF_INSTALLED:-prompt}" in
-      skip)
-        log_info "Skipping already-installed cask: $cask"
-        return 0
-        ;;
-      upgrade)
-        log_info "Upgrading cask: $cask"
-        brew upgrade --cask "$cask" || log_warn "brew upgrade --cask failed for ${cask}"
-        record_caveat cask "$cask"
-        return 0
-        ;;
-      prompt|*)
-        if ! prompt_yes_no "${desc} already present. Reinstall or proceed with setup step anyway?" n; then
-          log_warn "Skipping cask: $cask"
-          return 0
-        fi
-        ;;
-    esac
+  _cask_step "$cask" "$desc"
+  if brew_owns_cask "$cask"; then
+    check_shadowed_cask "$cask" || true
+  fi
+  return 0
+}
+
+_cask_step() {
+  local cask="$1"
+  local desc="$2"
+
+  if ! brew_owns_cask "$cask"; then
+    if cask_unowned_app "$cask"; then
+      log_warn "${desc}: ${UNOWNED_APP} exists but Homebrew does not own it."
+      record_manual "$cask" "unowned app — ${UNOWNED_APP} exists but is not Homebrew-owned; remove it, then re-run"
+      return 0
+    fi
+    _cask_install "$cask" "$desc"
+    return 0
   fi
 
+  case "$IF_INSTALLED" in
+    skip)
+      log_info "Skipping already-installed cask: $cask"
+      return 0
+      ;;
+    upgrade)
+      if ! plan_row "$cask" cask &>/dev/null; then
+        log_info "Up to date: ${cask}"
+        return 0
+      fi
+      if plan_pinned "$cask" cask; then
+        record_manual "$cask" "pinned in Homebrew; not upgrading"
+        return 0
+      fi
+      if check_shadowed_cask "$cask"; then
+        log_warn "${desc}: not upgrading — you run a copy outside Homebrew's target."
+        return 0
+      fi
+      if cask_app_running "$cask"; then
+        log_warn "${desc}: ${RUNNING_APP} is running; not swapping the bundle underneath it."
+        record_manual "$cask" "app running — quit ${RUNNING_APP} and re-run ($(plan_diff "$cask" cask))"
+        return 0
+      fi
+      log_info "Upgrading cask: ${cask} ($(plan_diff "$cask" cask))"
+      if brew upgrade --cask "$cask"; then
+        record_caveat cask "$cask"
+      else
+        record_failed "$cask" "brew upgrade --cask failed"
+      fi
+      return 0
+      ;;
+    prompt|*)
+      if ! prompt_yes_no "${desc} already present. Reinstall or proceed with setup step anyway?" n; then
+        log_warn "Skipping cask: $cask"
+        return 0
+      fi
+      _cask_install "$cask" "$desc"
+      return 0
+      ;;
+  esac
+}
+
+_cask_install() {
+  local cask="$1"
+  local desc="$2"
   local output=""
   if output="$(brew install --cask "$cask" 2>&1)"; then
     [[ -n "$output" ]] && printf '%s\n' "$output"
+    OWNED_CASKS="${OWNED_CASKS}
+${cask}"
     record_caveat cask "$cask"
     return 0
   fi
 
   printf '%s\n' "$output" >&2
+
+  # cask_unowned_app pre-empts this in the common case; this is the fallback for
+  # a bundle that appeared after ownership was built, or one brew reports oddly.
   if [[ "$output" == *"already an App at '"* ]]; then
     local app_path
     app_path="$(printf '%s\n' "$output" | sed -n "s/.*already an App at '\\([^']*\\)'.*/\\1/p" | head -n 1)"
-    if [[ -z "$app_path" ]]; then
-      log_error "Cask install failed for ${cask}."
-      return 1
-    fi
-
-    if prompt_yes_no "${app_path} already exists. Remove it and retry installing ${cask}?" n; then
-      rm -rf "$app_path"
-      brew install --cask "$cask"
-      record_caveat cask "$cask"
-      return 0
-    fi
-
-    if prompt_yes_no "Skip ${cask} and continue setup?" y; then
+    if [[ -n "$app_path" ]]; then
+      if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+        record_manual "$cask" "unowned app — ${app_path} exists but is not Homebrew-owned; remove it, then re-run"
+        return 0
+      fi
+      if prompt_yes_no "${app_path} already exists. Remove it and retry installing ${cask}?" n; then
+        rm -rf "$app_path"
+        if brew install --cask "$cask"; then
+          OWNED_CASKS="${OWNED_CASKS}
+${cask}"
+          record_caveat cask "$cask"
+        else
+          record_failed "$cask" "brew install --cask failed after removing ${app_path}"
+        fi
+        return 0
+      fi
       log_warn "Skipped cask due to existing app: ${cask}"
+      record_manual "$cask" "unowned app — ${app_path} kept; cask not installed"
       return 0
     fi
   fi
 
+  # Convergence is per-Artifact independent: one broken cask must not stop the rest.
   log_error "Cask install failed for ${cask}."
-  return 1
+  record_failed "$cask" "brew install --cask failed"
+  return 0
 }
 
 ensure_homebrew() {
@@ -309,7 +660,7 @@ app_in_applications() {
 }
 
 brew_cask_installed() {
-  command -v brew &>/dev/null && brew list --cask "$1" &>/dev/null
+  command -v brew &>/dev/null && brew_owns_cask "$1"
 }
 
 docker_desktop_present() {
@@ -329,10 +680,52 @@ rancher_desktop_present() {
 }
 
 colima_present() {
-  brew list --formula colima &>/dev/null || command -v colima &>/dev/null
+  brew_owns_formula colima || command -v colima &>/dev/null
+}
+
+# Unattended, every `read` here hits EOF and falls to its default -- and two of those
+# defaults call `exit 1`. Detection is non-interactive; only the resolution is. So under
+# --upgrade we detect, pick the conservative default, and report instead of asking.
+preflight_noninteractive() {
+  log_info "Preflight (non-interactive): detecting conflicts, choosing safe defaults."
+
+  if [[ -x /opt/homebrew/bin/brew ]] && [[ -x /usr/local/bin/brew ]]; then
+    record_manual "homebrew" "two installations (/opt/homebrew and /usr/local); using ${BREW_PREFIX}"
+  fi
+
+  if [[ -d "${TARGET_DOTFILES}" ]] && [[ ! -d "${TARGET_DOTFILES}/.git" ]]; then
+    local count
+    count="$(find "${TARGET_DOTFILES}" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')"
+    if [[ "${count:-0}" -gt 0 ]]; then
+      record_manual "dotfiles" "${TARGET_DOTFILES} has content but no .git; run setup.sh without --upgrade to review the sync"
+    fi
+  fi
+
+  if docker_desktop_present; then
+    SKIP_ORBSTACK=1
+    if ! orbstack_present; then
+      record_manual "orbstack" "not installed and Docker Desktop is present; declining to add a second Docker stack"
+    else
+      record_manual "orbstack" "both Docker Desktop and OrbStack are installed; only one should own the docker socket"
+    fi
+  fi
+
+  rancher_desktop_present && record_manual "rancher-desktop" "installed; can overlap with Docker Desktop / OrbStack"
+  colima_present && record_manual "colima" "present; can conflict with other Docker endpoints"
+
+  if command -v docker &>/dev/null && ! docker info &>/dev/null; then
+    record_manual "docker" "CLI exists but 'docker info' failed (daemon down or context broken)"
+  fi
+
+  return 0
 }
 
 preflight_environment() {
+  if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+    preflight_noninteractive
+    return 0
+  fi
+
   log_info "Preflight: checking for common conflicts (Docker, OrbStack, dotfiles, Homebrew)"
 
   if [[ -x /opt/homebrew/bin/brew ]] && [[ -x /usr/local/bin/brew ]]; then
@@ -445,6 +838,16 @@ init_dotfiles_git() {
 
 run_fnm_default_node() {
   command -v fnm &>/dev/null || return 0
+  # Node is not an Artifact: fnm can hold many versions at once, so "the installed
+  # version" is a set, not a scalar. --upgrade leaves it to fnm.
+  if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+    if command -v node &>/dev/null; then
+      log_info "Node present via fnm; --upgrade leaves Node version selection to fnm."
+    else
+      record_manual "node" "absent — --upgrade does not install optional artifacts; run setup.sh without --upgrade"
+    fi
+    return 0
+  fi
   if prompt_yes_no "Install default Node LTS via fnm (fnm install --lts && fnm default lts-latest)?" y; then
     fnm install --lts
     fnm default lts-latest
@@ -458,8 +861,57 @@ run_fnm_default_node() {
 # --no-modify-path: fish PATH is handled in config.fish, not the default
 # rustup profile edits. rustfmt + clippy ship with the stable profile; the
 # rust-analyzer LSP is installed by Mason inside Neovim (mirrors gopls).
+rust_present() { command -v rustc &>/dev/null && [[ -d "$HOME/.rustup/toolchains" ]]; }
+
+# Rust is a special case, not an instance of a general "Adapter" (see docs/adr/0001).
+# `rustup check` reports a *verdict*, not a version pair — we never compare strings —
+# and it covers two things at once (the toolchain and rustup itself).
+#
+# Watch out: `rustup check` exits 100 when an update is available. Under
+# `set -euo pipefail`, an unguarded `out="$(rustup check)"` would abort the script on
+# exactly the machines that have something to upgrade.
+upgrade_rust() {
+  command -v rustup &>/dev/null || return 0
+
+  local out rc=0
+  if ! out="$(rustup check 2>&1)"; then
+    rc=$?
+  fi
+  if [[ "$rc" -ne 0 ]] && [[ "$rc" -ne 100 ]]; then
+    log_warn "rustup check exited ${rc}."
+    record_failed "rust" "rustup check exited ${rc}"
+    return 0
+  fi
+
+  if ! printf '%s\n' "$out" | grep -q 'update available'; then
+    log_info "Rust toolchain up to date."
+    return 0
+  fi
+
+  printf '%s\n' "$out" | grep 'update available' | while IFS= read -r line; do
+    log_info "rustup: ${line}"
+  done
+
+  if rustup update; then
+    log_info "Rust updated."
+  else
+    record_failed "rust" "rustup update failed"
+  fi
+}
+
 run_rustup_default_toolchain() {
-  if command -v rustc &>/dev/null && [[ -d "$HOME/.rustup/toolchains" ]]; then
+  # --upgrade converges an existing toolchain instead of skipping it (the old
+  # behaviour left Rust to rot silently).
+  if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+    if rust_present; then
+      upgrade_rust
+    else
+      record_manual "rust" "absent — --upgrade does not install optional artifacts; run setup.sh without --upgrade"
+    fi
+    return 0
+  fi
+
+  if rust_present; then
     log_info "Rust toolchain already present ($(rustc --version 2>/dev/null)). Skipping rustup-init."
   elif prompt_yes_no "Install Rust stable toolchain via rustup (curl https://sh.rustup.rs | sh -s -- -y)?" y; then
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
@@ -475,6 +927,14 @@ run_rustup_default_toolchain() {
 }
 
 optional_karabiner_manager() {
+  # Non-Artifact, and destructive: `yarn build` rewrites karabiner.json and
+  # `launchctl kickstart` restarts the daemon. Never run unattended.
+  if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+    if brew_owns_cask karabiner-elements; then
+      record_manual "karabiner-manager" "config build + daemon restart are destructive; run setup.sh without --upgrade to rebuild"
+    fi
+    return 0
+  fi
   if ! prompt_yes_no "Configure Karabiner Elements from karabiner-manager submodule (install apps, build karabiner.json)?" n; then
     return 0
   fi
@@ -539,10 +999,19 @@ optional_karabiner_manager() {
 }
 
 optional_miniconda() {
+  # Deliberately outside the Plan: a py312 -> py314 bump orphans every conda env.
+  # This is the one package whose upgrade would need version *ordering*, and we
+  # refuse to introduce that (docs/adr/0001).
+  if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+    if brew_owns_cask miniconda; then
+      record_manual "miniconda" "not converged — a major Python bump orphans conda envs; upgrade manually"
+    fi
+    return 0
+  fi
   if ! prompt_yes_no "Install Miniconda (Python version management)?" n; then
     return 0
   fi
-  if brew list --cask miniconda &>/dev/null; then
+  if brew_owns_cask miniconda; then
     if ! prompt_yes_no "Miniconda is already installed. Reinstall?" n; then
       return 0
     fi
@@ -551,6 +1020,15 @@ optional_miniconda() {
 }
 
 optional_sdkman() {
+  # SDKMAN is permanently Manual: `sdk` is a shell function, not a binary; its
+  # output is prose, not machine-readable; and silently bumping a Java toolchain
+  # under someone's projects is not something to do unattended (docs/adr/0001).
+  if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+    if [[ -d "${HOME}/.sdkman" ]]; then
+      record_manual "sdkman" "candidates are upgraded interactively — run 'sdk upgrade' in a shell"
+    fi
+    return 0
+  fi
   if ! prompt_yes_no "Install SDKMAN! (Java) and fish integrations (fisher + sdkman-for-fish)?" n; then
     return 0
   fi
@@ -572,6 +1050,8 @@ disable_spotlight_hotkey() {
 optional_raycast_import() {
   local rc="${SCRIPT_DIR}/raycast/baseline.rayconfig"
   [[ -f "$rc" ]] || return 0
+  # Opens the Raycast UI and waits for a human. Never unattended.
+  [[ "$NONINTERACTIVE" -eq 1 ]] && return 0
   if ! prompt_yes_no "Import baseline Raycast config (${rc})?" n; then
     return 0
   fi
@@ -594,6 +1074,12 @@ stow_one_package() {
   esac
 
   if [[ -n "$target_path" ]] && [[ -e "$target_path" ]] && [[ ! -L "$target_path" ]]; then
+    # Unattended, `read` sees no stdin, `ans` is empty, the default `n` wins, and
+    # your config silently stops being stowed. Surface it instead of warning.
+    if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+      record_manual "stow:${pkg}" "${target_path} exists and is not a symlink; move it aside, then re-run"
+      return 0
+    fi
     if prompt_yes_no "${target_path} exists and is not a symlink. Move to ${target_path}.bak and stow package '${pkg}'?" n; then
       mv "$target_path" "${target_path}.bak.$(date +%s)"
     else
@@ -625,8 +1111,14 @@ set_fish_default_shell() {
   command -v fish &>/dev/null || return 0
   local fish_path
   fish_path="$(command -v fish)"
-  if [[ "${SHELL:-}" == "$fish_path" ]]; then
+  # NOT $SHELL -- export_shell_for_homebrew_fish has already overwritten it with fish.
+  if [[ "$ESETUP_ORIGINAL_SHELL" == "$fish_path" ]]; then
     log_info "Default shell is already fish."
+    return 0
+  fi
+  # chsh is destructive and is not an upgrade.
+  if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+    record_manual "fish" "default login shell is not fish; chsh is destructive — run setup.sh without --upgrade"
     return 0
   fi
   if ! prompt_yes_no "Set fish as default login shell (${fish_path})?" n; then
@@ -742,10 +1234,15 @@ run_claude_only() {
   if [[ "$OS_KIND" == "macos" ]]; then
     ensure_homebrew
     trust_brew_taps
+    build_ownership
+    if [[ "$IF_INSTALLED" == "upgrade" ]]; then
+      build_plan
+    fi
   fi
   install_claude
   setup_claude_skills
   log_info "Claude + skills done."
+  print_action_summary
 }
 
 # Homebrew 4.x prints a noisy "taps are not trusted" banner on every operation unless
@@ -779,33 +1276,40 @@ trust_brew_taps() {
 
 main() {
   local arg
-  BREW_IF_INSTALLED=prompt
   for arg in "$@"; do
     case "$arg" in
       --skip-preflight) SKIP_PREFLIGHT=1 ;;
       --claude) CLAUDE_ONLY=1 ;;
       --claude-skills) CLAUDE_SKILLS_ONLY=1 ;;
-      --skip-installed-brew)
-        if [[ "$BREW_IF_INSTALLED" == "upgrade" ]]; then
-          log_error "Cannot use --skip-installed-brew with --upgrade-installed-brew."
-          exit 1
+      # --skip-installed-brew / --upgrade-installed-brew: pre-Plan names, kept as
+      # aliases. The scope is no longer brew-only (Rust converges too).
+      --skip-installed|--skip-installed-brew)
+        if [[ "$IF_INSTALLED" == "upgrade" ]]; then
+          log_error "Cannot use --skip-installed with --upgrade."
+          exit 2
         fi
-        BREW_IF_INSTALLED=skip
+        IF_INSTALLED=skip
         ;;
-      --upgrade-installed-brew)
-        if [[ "$BREW_IF_INSTALLED" == "skip" ]]; then
-          log_error "Cannot use --upgrade-installed-brew with --skip-installed-brew."
-          exit 1
+      --upgrade|--upgrade-installed-brew)
+        if [[ "$IF_INSTALLED" == "skip" ]]; then
+          log_error "Cannot use --upgrade with --skip-installed."
+          exit 2
         fi
-        BREW_IF_INSTALLED=upgrade
+        IF_INSTALLED=upgrade
+        NONINTERACTIVE=1
         ;;
       -h|--help)
-        echo "Usage: $0 [--claude] [--claude-skills] [--skip-preflight] [--skip-installed-brew | --upgrade-installed-brew]"
-        echo "  --claude                   Cross-platform (macOS/Linux/WSL): install Claude Code (+ desktop app on macOS) + skills only"
-        echo "  --claude-skills            Cross-platform (macOS/Linux/WSL): set up ONLY the Claude skills, skip everything else"
-        echo "  --skip-preflight           Skip conflict / environment checks (CI or advanced users)"
-        echo "  --skip-installed-brew      Skip Homebrew formula/cask steps when already installed (no per-package prompts)"
-        echo "  --upgrade-installed-brew   Run brew update, then brew upgrade for installed formulae/casks (no per-package prompts)"
+        echo "Usage: $0 [--claude] [--claude-skills] [--skip-preflight] [--skip-installed | --upgrade]"
+        echo "  --claude            Cross-platform (macOS/Linux/WSL): install Claude Code (+ desktop app on macOS) + skills only"
+        echo "  --claude-skills     Cross-platform (macOS/Linux/WSL): set up ONLY the Claude skills, skip everything else"
+        echo "  --skip-preflight    Skip conflict / environment checks (CI or advanced users)"
+        echo "  --skip-installed    Skip artifacts that are already Homebrew-owned (no per-package prompts)"
+        echo "  --upgrade           Non-interactive: install what's missing, converge what's installed,"
+        echo "                      and report anything that needs a human. Requires network."
+        echo
+        echo "Exit codes: 0 = converged (some artifacts may need attention), 1 = an artifact failed,"
+        echo "            2 = the run could not start (no brew/jq, brew update failed, bad flags)."
+        echo "Aliases: --skip-installed-brew, --upgrade-installed-brew (pre-Plan names)."
         echo "Env: TARGET_DOTFILES (default: \$HOME/6eniu5/dotfiles)"
         exit 0
         ;;
@@ -831,9 +1335,14 @@ main() {
   ensure_homebrew
   trust_brew_taps   # silence the Homebrew tap-trust banner before any brew install
 
-  if [[ "$BREW_IF_INSTALLED" == "upgrade" ]]; then
-    log_info "Running brew update (--upgrade-installed-brew)."
-    brew update
+  # Ownership on every run: cheap, offline, and Foreign/Shadowed matter in all modes.
+  build_ownership
+
+  # The Plan must come AFTER trust_brew_taps, or packages from untrusted third-party
+  # taps (bun, from oven-sh/bun) can be missing from the diff and silently look
+  # up-to-date. It comes BEFORE preflight so a network failure costs nothing.
+  if [[ "$IF_INSTALLED" == "upgrade" ]]; then
+    build_plan
   fi
 
   if [[ "$SKIP_PREFLIGHT" -eq 0 ]]; then
@@ -854,27 +1363,51 @@ main() {
     brew_install_formula "$f" "$f"
   done
 
-  # bun (try core name first)
-  if command -v bun &>/dev/null; then
-    case "$BREW_IF_INSTALLED" in
+  # bun needs its own arm only because it may come from core or from oven-sh/bun.
+  # Ownership is still the predicate -- the old `command -v bun` guard meant a
+  # curl-installed bun made every brew upgrade fail into a warning and do nothing.
+  if brew_owns_formula bun; then
+    case "$IF_INSTALLED" in
       skip)
-        log_info "Skipping bun (already installed)."
+        log_info "Skipping already-installed formula: bun"
         ;;
       upgrade)
-        log_info "Upgrading bun via Homebrew..."
-        brew upgrade bun 2>/dev/null || brew upgrade oven-sh/bun/bun 2>/dev/null || log_warn "bun upgrade skipped (install from Homebrew for upgrades)."
-        record_caveat formula bun
+        if ! plan_row bun formula &>/dev/null; then
+          log_info "Up to date: bun"
+        elif plan_pinned bun formula; then
+          record_manual bun "pinned in Homebrew; not upgrading"
+        elif check_shadowed_formula bun; then
+          log_warn "bun: not upgrading — you run a copy outside ${BREW_PREFIX_PATH}."
+        else
+          log_info "Upgrading formula: bun ($(plan_diff bun formula))"
+          if brew upgrade bun 2>/dev/null || brew upgrade oven-sh/bun/bun; then
+            record_caveat formula bun
+          else
+            record_failed bun "brew upgrade failed"
+          fi
+        fi
         ;;
       prompt|*)
         if prompt_yes_no "bun already present. Reinstall or proceed with setup step anyway?" n; then
-          brew install bun 2>/dev/null || brew install oven-sh/bun/bun
-          record_caveat formula bun
+          if brew install bun 2>/dev/null || brew install oven-sh/bun/bun; then
+            record_caveat formula bun
+          else
+            record_failed bun "brew install failed"
+          fi
         fi
         ;;
     esac
+    check_shadowed_formula bun || true
+  elif is_foreign_formula bun; then
+    log_warn "bun already on PATH at ${FOREIGN_PATH}, not Homebrew-owned."
+    record_manual bun "foreign — ${FOREIGN_PATH} is on PATH but not Homebrew-owned; installing would create a second copy"
   else
-    brew install bun 2>/dev/null || brew install oven-sh/bun/bun
-    record_caveat formula bun
+    if brew install bun 2>/dev/null || brew install oven-sh/bun/bun; then
+      record_caveat formula bun
+      check_shadowed_formula bun || true
+    else
+      record_failed bun "brew install failed"
+    fi
   fi
 
   brew_install_cask wezterm "WezTerm"
@@ -885,7 +1418,7 @@ main() {
   fi
 
   brew_install_cask raycast "Raycast"
-  if brew list --cask raycast &>/dev/null; then
+  if brew_owns_cask raycast; then
     disable_spotlight_hotkey
     optional_raycast_import
   fi
@@ -908,7 +1441,8 @@ main() {
 
   optional_karabiner_manager
 
-  if prompt_yes_no "Set up Claude Code skills (fork submodule + ~/.claude/skills symlinks)?" y; then
+  # Non-Artifact, idempotent (git pull + symlinks): --upgrade runs it.
+  if [[ "$NONINTERACTIVE" -eq 1 ]] || prompt_yes_no "Set up Claude Code skills (fork submodule + ~/.claude/skills symlinks)?" y; then
     setup_claude_skills
   fi
 
@@ -918,20 +1452,34 @@ main() {
   link_homebrew_completions_for_fish
 
   print_caveat_summary
-  if prompt_yes_no "Apply known caveat actions now?" n; then
+  # Non-Artifact, idempotent (ensure_line_in_file): --upgrade applies it.
+  if [[ "$NONINTERACTIVE" -eq 1 ]] || prompt_yes_no "Apply known caveat actions now?" n; then
     apply_known_caveat_actions
   fi
 
-  if prompt_yes_no "Run stow to link ${TARGET_DOTFILES} into \$HOME?" y; then
+  # Non-Artifact, idempotent (stow re-links without complaint): --upgrade runs it.
+  # This is what repairs a symlink after neovim moves. Skipping it would be wrong.
+  if [[ "$NONINTERACTIVE" -eq 1 ]] || prompt_yes_no "Run stow to link ${TARGET_DOTFILES} into \$HOME?" y; then
     run_stow_all
   fi
 
-  if prompt_yes_no "Set fish as default shell?" n; then
+  # set_fish_default_shell records a Manual entry rather than chsh-ing unattended.
+  if [[ "$NONINTERACTIVE" -eq 1 ]] || prompt_yes_no "Set fish as default shell?" n; then
     set_fish_default_shell
   fi
 
   log_info "Done. Dotfiles repo: ${TARGET_DOTFILES}"
   log_info "Open a new terminal or: exec fish"
+
+  print_action_summary
+
+  # Manual is a steady state and exits 0 -- `claude-code` will be shadowed next month
+  # too, and a report that is red forever is a report nobody reads. Failed is transient.
+  if [[ "${#FAILED_ACTIONS[@]}" -gt 0 ]]; then
+    log_error "${#FAILED_ACTIONS[@]} artifact(s) failed to converge."
+    return 1
+  fi
+  return 0
 }
 
 main "$@"
