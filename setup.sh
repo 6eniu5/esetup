@@ -648,7 +648,7 @@ ensure_homebrew() {
 
   if ! prompt_yes_no "Homebrew not found at ${BREW_PREFIX}. Install Homebrew?" y; then
     log_error "Homebrew is required."
-    exit 1
+    exit 2   # cannot start
   fi
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   eval "$("${BREW_PREFIX}/bin/brew" shellenv)"
@@ -810,8 +810,40 @@ sync_dotfiles_to_home() {
   chmod +x "${TARGET_DOTFILES}/bin/.local/bin/tmux-cht.sh" 2>/dev/null || true
 }
 
+# Idempotently ensure one submodule exists, WITHOUT destroying a working tree.
+#
+# A live submodule's `.git` is a gitlink FILE ("gitdir: ../../.git/modules/..."),
+# not a directory. The old `[[ ! -d <path>/.git ]]` test was therefore true on every
+# run for a perfectly healthy submodule, and the branch it guarded did `rm -rf <path>`
+# before a network `git submodule add` that then failed ("already exists in the index")
+# into a log_warn. Uncommitted work in nvim/ or tmux-sessionizer/ was silently
+# destroyed and the run still exited 0. Test -e, never rm, and fail loudly.
+ensure_dotfiles_submodule() {
+  local path="$1" url="$2" name="$3"
+
+  [[ -e "${path}/.git" ]] && return 0
+
+  # Registered in .gitmodules but not checked out: `git submodule update` owns this.
+  if git config --file .gitmodules --get "submodule.${path}.url" &>/dev/null; then
+    log_info "Submodule ${name} already registered; leaving checkout to 'git submodule update'."
+    return 0
+  fi
+
+  # Unregistered content in the way. Move it aside -- never rm -rf.
+  if [[ -e "$path" ]]; then
+    local bak="${path}.bak.$(date +%s)"
+    mv "$path" "$bak"
+    log_warn "Moved existing ${path} to ${bak} before adding submodule ${name}."
+    record_manual "$name" "existing ${path} moved to ${bak}; nothing was deleted"
+  fi
+
+  if ! git submodule add "$url" "$path"; then
+    record_failed "$name" "git submodule add failed (SSH / network). Run: git submodule add ${url} ${path}"
+  fi
+}
+
 init_dotfiles_git() {
-  cd "${TARGET_DOTFILES}" || exit 1
+  cd "${TARGET_DOTFILES}" || exit 2
   [[ -d .git ]] || git init
 
   if [[ -f "$ESETUP_SSH_IDENTITY" ]]; then
@@ -822,15 +854,12 @@ init_dotfiles_git() {
     log_info "Dotfiles repo will use ${ESETUP_SSH_IDENTITY} for git@github.com (per-repo only, ~/.ssh/config bypassed)."
   fi
 
-  if [[ ! -d nvim/.config/nvim/.git ]]; then
-    rm -rf nvim/.config/nvim
-    git submodule add git@github.com:6eniu5/kickstart.nvim.git nvim/.config/nvim || log_warn "Submodule nvim add failed (SSH / network). Run: git submodule add git@github.com:6eniu5/kickstart.nvim.git nvim/.config/nvim"
+  ensure_dotfiles_submodule nvim/.config/nvim git@github.com:6eniu5/kickstart.nvim.git nvim
+  ensure_dotfiles_submodule tmux-sessionizer git@github.com:6eniu5/tmux-sessionizer.git tmux-sessionizer
+
+  if ! git submodule update --init --recursive; then
+    record_failed "dotfiles-submodules" "git submodule update --init --recursive failed (SSH / network)"
   fi
-  if [[ ! -d tmux-sessionizer/.git ]]; then
-    rm -rf tmux-sessionizer
-    git submodule add git@github.com:6eniu5/tmux-sessionizer.git tmux-sessionizer || log_warn "Submodule tmux-sessionizer add failed. Run: git submodule add git@github.com:6eniu5/tmux-sessionizer.git tmux-sessionizer"
-  fi
-  git submodule update --init --recursive || true
   if [[ -f "${TARGET_DOTFILES}/tmux-sessionizer/tmux-sessionizer" ]]; then
     ln -sf ../../../tmux-sessionizer/tmux-sessionizer "${TARGET_DOTFILES}/bin/.local/bin/tmux-sessionizer"
   fi
@@ -1208,7 +1237,7 @@ run_claude_skills_only() {
 
   if ! command -v git &>/dev/null; then
     log_error "git is required to set up Claude skills. Install git and re-run."
-    exit 1
+    exit 2   # cannot start
   fi
 
   if command -v claude &>/dev/null; then
@@ -1243,6 +1272,12 @@ run_claude_only() {
   setup_claude_skills
   log_info "Claude + skills done."
   print_action_summary
+  # Same exit contract as main(): Failed is transient and must be loud.
+  if [[ "${#FAILED_ACTIONS[@]}" -gt 0 ]]; then
+    log_error "${#FAILED_ACTIONS[@]} artifact(s) failed to converge."
+    return 1
+  fi
+  return 0
 }
 
 # Homebrew 4.x prints a noisy "taps are not trusted" banner on every operation unless

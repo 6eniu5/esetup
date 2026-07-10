@@ -68,6 +68,12 @@ is looking for. Shadowed and Foreign resolve against `ESETUP_ORIGINAL_PATH`, cap
 before anything mutates it, walked in order so the first hit is what the user actually invokes.
 This was caught by a test, not by review.
 
+**A submodule's `.git` is a FILE, not a directory.** `[[ -d <path>/.git ]]` is false for every
+healthy submodule, so the old `init_dotfiles_git` ran `rm -rf nvim/.config/nvim` on *every* run,
+watched `git submodule add` fail into a `log_warn`, and was saved only because a later
+`git submodule update --init` restored the tree. Uncommitted work was destroyed silently and the
+run exited 0. Test `-e`; move aside, never `rm -rf`; and record Failed, not a warning.
+
 `rustup check` exits **100** when an update is available. Under `set -euo pipefail` an
 unguarded `out="$(rustup check)"` aborts the script on exactly the machines with something to
 upgrade. Likewise `local PLAN="$(brew outdated …)"` always exits 0 — the status is `local`'s, not
