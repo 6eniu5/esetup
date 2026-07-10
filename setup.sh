@@ -15,6 +15,10 @@ SKIP_ORBSTACK=0
 SKIP_PREFLIGHT=0
 # 1 = --claude fast path: install Claude Code + skills only, skip the rest
 CLAUDE_ONLY=0
+# 1 = --claude-skills fast path: set up ONLY the Claude skills (cross-platform: macOS/Linux/WSL)
+CLAUDE_SKILLS_ONLY=0
+# Set by detect_os: macos | wsl | linux | unknown
+OS_KIND=""
 CAVEATS_INFO=()
 CAVEATS_ACTION=()
 
@@ -634,13 +638,46 @@ set_fish_default_shell() {
   chsh -s "$fish_path" || log_warn "chsh failed; set default shell manually."
 }
 
-# Anthropic Claude: the desktop app (cask `claude` = Chat/Cowork/Code GUI, auto-updates)
-# and the terminal CLI (cask `claude-code` = the `claude` binary). Separate artifacts,
-# no single bundle. Kept brew-managed so --skip/--upgrade-installed-brew apply; a brew
-# install also makes Claude Code defer self-updates to `brew upgrade` instead of its own.
+# Install Claude Code CLI without Homebrew (Linux/WSL, or any non-brew host). Uses the
+# official native installer, which drops a self-updating `claude` binary into ~/.local/bin
+# (no Node required) and works on both Linux and macOS. Idempotent: re-running updates in place.
+install_claude_code_native() {
+  if ! command -v curl &>/dev/null; then
+    log_error "curl is required to install Claude Code. Install curl and re-run."
+    return 1
+  fi
+  if command -v claude &>/dev/null; then
+    log_info "claude already on PATH: $(command -v claude)."
+    if ! prompt_yes_no "Reinstall/update Claude Code via the native installer?" n; then
+      return 0
+    fi
+  fi
+  log_info "Installing Claude Code CLI via the official installer (https://claude.ai/install.sh)."
+  if curl -fsSL https://claude.ai/install.sh | bash; then
+    log_info "Claude Code installed. If 'claude' isn't found, add ~/.local/bin to PATH or open a new shell."
+  else
+    log_error "Native Claude Code install failed. See https://docs.claude.com/en/docs/claude-code for manual steps."
+    return 1
+  fi
+}
+
+# Anthropic Claude, per host:
+#   macOS  — the desktop app (cask `claude` = Chat/Cowork/Code GUI, auto-updates) AND the
+#            terminal CLI (cask `claude-code` = the `claude` binary). Separate artifacts, no
+#            single bundle. Kept brew-managed so --skip/--upgrade-installed-brew apply, and a
+#            brew install makes Claude Code defer self-updates to `brew upgrade`.
+#   Linux/WSL (or unknown) — no official desktop cask exists, so install just the Claude Code
+#            CLI via the native installer. On WSL this is the in-distro Linux CLI; the Windows
+#            desktop app (if wanted) is installed separately on the Windows side.
 install_claude() {
-  brew_install_cask claude "Claude (desktop app)"
-  brew_install_cask claude-code "Claude Code (CLI)"
+  [[ -n "$OS_KIND" ]] || detect_os
+  if [[ "$OS_KIND" == "macos" ]]; then
+    brew_install_cask claude "Claude (desktop app)"
+    brew_install_cask claude-code "Claude Code (CLI)"
+  else
+    log_info "No official Claude desktop app on ${OS_KIND}; installing the Claude Code CLI only."
+    install_claude_code_native
+  fi
 }
 
 # Personal fork of mattpocock/skills (the `skills` submodule) symlinked into
@@ -648,6 +685,67 @@ install_claude() {
 # upstream and pushes the fork. See docs/claude-skills/ for the full model.
 setup_claude_skills() {
   bash "${SCRIPT_DIR}/scripts/install-claude-skills.sh"
+}
+
+# Classify the host so the skills-only path can run on macOS, native Linux, and
+# WSL. WSL is a Linux kernel that reports "microsoft"/"WSL" in /proc/version (or
+# sets $WSL_DISTRO_NAME); we treat it as its own kind for messaging only — the
+# skills installer itself is pure git + symlinks and behaves identically.
+detect_os() {
+  case "$(uname -s)" in
+    Darwin) OS_KIND="macos" ;;
+    Linux)
+      if [[ -n "${WSL_DISTRO_NAME:-}" ]] || grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; then
+        OS_KIND="wsl"
+      else
+        OS_KIND="linux"
+      fi
+      ;;
+    *) OS_KIND="unknown" ;;
+  esac
+}
+
+# --claude-skills fast path. Cross-platform (macOS / Linux / WSL): sets up ONLY the
+# Claude skills fork + ~/.claude/skills symlinks, for machines that already have
+# Claude installed. Deliberately does NOT touch Homebrew, dotfiles, or anything
+# macOS-specific — the skills installer is pure git + symlinks. We only sanity-check
+# that git is present and that `claude` is on PATH (a warning, not a hard requirement).
+run_claude_skills_only() {
+  detect_os
+  log_info "Claude skills setup (--claude-skills) — detected host: ${OS_KIND}."
+
+  if ! command -v git &>/dev/null; then
+    log_error "git is required to set up Claude skills. Install git and re-run."
+    exit 1
+  fi
+
+  if command -v claude &>/dev/null; then
+    log_info "Found claude on PATH: $(command -v claude)."
+  else
+    log_warn "claude not found on PATH. Skills will still be linked into ~/.claude/skills,"
+    log_warn "but they only take effect once Claude Code is installed."
+    if ! prompt_yes_no "Continue setting up skills anyway?" y; then
+      exit 1
+    fi
+  fi
+
+  setup_claude_skills
+  log_info "Claude skills done. Linked into ${HOME}/.claude/skills."
+}
+
+# --claude fast path. Cross-platform (macOS / Linux / WSL): installs Claude Code (plus the
+# desktop app on macOS) and the skills, and nothing else. On macOS it bootstraps Homebrew
+# and installs the casks; on Linux/WSL it uses the native CLI installer (no Homebrew).
+run_claude_only() {
+  detect_os
+  log_info "Claude bundle (--claude) — detected host: ${OS_KIND}."
+  if [[ "$OS_KIND" == "macos" ]]; then
+    ensure_homebrew
+    trust_brew_taps
+  fi
+  install_claude
+  setup_claude_skills
+  log_info "Claude + skills done."
 }
 
 # Homebrew 4.x prints a noisy "taps are not trusted" banner on every operation unless
@@ -686,6 +784,7 @@ main() {
     case "$arg" in
       --skip-preflight) SKIP_PREFLIGHT=1 ;;
       --claude) CLAUDE_ONLY=1 ;;
+      --claude-skills) CLAUDE_SKILLS_ONLY=1 ;;
       --skip-installed-brew)
         if [[ "$BREW_IF_INSTALLED" == "upgrade" ]]; then
           log_error "Cannot use --skip-installed-brew with --upgrade-installed-brew."
@@ -701,8 +800,9 @@ main() {
         BREW_IF_INSTALLED=upgrade
         ;;
       -h|--help)
-        echo "Usage: $0 [--claude] [--skip-preflight] [--skip-installed-brew | --upgrade-installed-brew]"
-        echo "  --claude                   Fast path: install Claude Code + skills only, skip everything else"
+        echo "Usage: $0 [--claude] [--claude-skills] [--skip-preflight] [--skip-installed-brew | --upgrade-installed-brew]"
+        echo "  --claude                   Cross-platform (macOS/Linux/WSL): install Claude Code (+ desktop app on macOS) + skills only"
+        echo "  --claude-skills            Cross-platform (macOS/Linux/WSL): set up ONLY the Claude skills, skip everything else"
         echo "  --skip-preflight           Skip conflict / environment checks (CI or advanced users)"
         echo "  --skip-installed-brew      Skip Homebrew formula/cask steps when already installed (no per-package prompts)"
         echo "  --upgrade-installed-brew   Run brew update, then brew upgrade for installed formulae/casks (no per-package prompts)"
@@ -712,18 +812,24 @@ main() {
     esac
   done
 
+  # --claude-skills: cross-platform skills-only path. Runs BEFORE ensure_homebrew so it
+  # works on Linux and WSL, where Homebrew is absent and none of it should be triggered.
+  if [[ "$CLAUDE_SKILLS_ONLY" -eq 1 ]]; then
+    run_claude_skills_only
+    return 0
+  fi
+
+  # --claude: Claude Code (+ desktop app on macOS) + skills, nothing else. Also runs
+  # BEFORE ensure_homebrew so Linux/WSL use the native CLI installer; the macOS branch
+  # bootstraps Homebrew itself inside run_claude_only.
+  if [[ "$CLAUDE_ONLY" -eq 1 ]]; then
+    run_claude_only
+    return 0
+  fi
+
   log_info "Starting macOS setup (esetup)"
   ensure_homebrew
   trust_brew_taps   # silence the Homebrew tap-trust banner before any brew install
-
-  # --claude: bundle the Claude Code install with the skills setup, nothing else.
-  if [[ "$CLAUDE_ONLY" -eq 1 ]]; then
-    log_info "Claude bundle (--claude): installing Claude Code + skills only."
-    install_claude
-    setup_claude_skills
-    log_info "Claude + skills done."
-    return 0
-  fi
 
   if [[ "$BREW_IF_INSTALLED" == "upgrade" ]]; then
     log_info "Running brew update (--upgrade-installed-brew)."
