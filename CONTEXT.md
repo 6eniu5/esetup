@@ -5,6 +5,36 @@ language toolchains, dotfiles, and Claude Code skills. Reruns must be safe.
 
 ## Language
 
+### Dotfiles vs installer
+
+**Installer**:
+What esetup *is* — the bootstrap that installs Homebrew, runtimes, and secrets, then clones the
+Dotfiles Repo and runs its installer. esetup no longer holds config files itself. See
+[[docs/adr/0004]].
+_Avoid_: dotfiles manager
+
+**Dotfiles Repo**:
+The standalone `6eniu5/dotfiles` repo, cloned to `~/6eniu5/dotfiles`. The single home for
+everything the machine *is*: Stow Packages, Artifact Areas, and the `nvim`/`tmux-sessionizer`
+submodules. Self-installing (`./install`), so it deploys without esetup.
+_Avoid_: target dotfiles, deploy target (the old orphan throwaway this replaces)
+
+**Stow Package**:
+A top-level directory in the Dotfiles Repo that GNU stow symlinks into `$HOME` (e.g. `fish`,
+`wezterm`, `bin`). Stowed `--no-folding` so target directories stay real, not folded into the repo.
+
+**Artifact Area**:
+A top-level directory in the Dotfiles Repo that is *not* a Stow Package — config the installer
+*applies* rather than symlinks (`keyboard/` SmartSet layouts, `raycast/` export). Absent from the
+stow package list.
+
+**Salvage**:
+Folding a config from a stray or older source (loose files, the `f412h4d/.dotfiles` repo, the live
+`~/.config`) into the Dotfiles Repo, keeping the union of features so nothing is lost. Judged
+against the live config, which is authoritative for "what I run now."
+
+
+
 ### The install surface
 
 **Declared Set**:
