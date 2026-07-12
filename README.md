@@ -1,6 +1,6 @@
 # esetup
 
-Interactive macOS bootstrap: Homebrew, CLI tools, fnm/bun, optional Miniconda and SDKMAN!, optional Karabiner Elements (via the `karabiner-manager` submodule), and GNU Stow dotfiles under `~/6eniu5/dotfiles` by default (override with env `TARGET_DOTFILES`).
+Interactive macOS bootstrap: Homebrew, CLI tools, fnm/bun, optional Miniconda and SDKMAN!, optional Karabiner Elements (via the `karabiner-manager` submodule), and the standalone self-installing dotfiles repo cloned to `~/6eniu5/dotfiles` by default (override with env `TARGET_DOTFILES`).
 
 ## Usage
 
@@ -24,10 +24,10 @@ Before installing casks, the script checks for common issues:
 - **Both stacks installed** — warns if Docker.app and OrbStack are present.
 - **Rancher Desktop / Colima** — warns about overlapping container tooling.
 - **`docker info` fails** — warns if the CLI exists but the daemon/context is broken.
-- **`~/6eniu5/dotfiles`** (or `TARGET_DOTFILES`) — warns if the directory exists with files but is not a git repo (rsync merge).
+- **`~/6eniu5/dotfiles`** (or `TARGET_DOTFILES`) — warns if the path exists but is not the dotfiles git clone (setup leaves it alone).
 - **Two Homebrew installs** — warns if both `/opt/homebrew` and `/usr/local` have `brew`.
 
-The script syncs `esetup/dotfiles/` to `~/6eniu5/dotfiles` (default), initializes git, adds submodules (`6eniu5/kickstart.nvim`, `6eniu5/tmux-sessionizer`), links `bin/.local/bin/tmux-sessionizer` into the submodule, and optionally runs `stow`.
+Dotfiles are a **standalone repo** ([`6eniu5/dotfiles`](https://github.com/6eniu5/dotfiles)); esetup clones it to `~/6eniu5/dotfiles` (default; override with `TARGET_DOTFILES`), runs its self-installer (`./install`, `stow --no-folding`), and applies the non-stowed artifact areas (`raycast/`, `keyboard/`). See [docs/adr/0004](./docs/adr/0004-dotfiles-extracted-to-standalone-self-installing-repo.md).
 
 ## Karabiner Elements and Raycast
 
@@ -64,9 +64,13 @@ launchctl kickstart -k "gui/$(id -u)/org.pqrs.karabiner.karabiner_console_user_s
 - macOS
 - Network for Homebrew and git submodules (SSH keys for GitHub)
 
-## Dotfiles layout
+## Dotfiles
 
-Stow packages live under `~/6eniu5/dotfiles/` (default): `fish`, `starship`, `wezterm`, `tmux`, `tmux-sessionizer-config`, `bin`, `nvim`.
+Dotfiles live in their own self-installing repo, [`6eniu5/dotfiles`](https://github.com/6eniu5/dotfiles),
+cloned to `~/6eniu5/dotfiles`. Stow packages (`fish`, `starship`, `wezterm`, `tmux`,
+`tmux-sessionizer-config`, `bin`, `atuin`, `git`, `htop`, `nvim`) plus the `nvim`/`tmux-sessionizer`
+submodules and the `keyboard/`/`raycast/` artifact areas. esetup just clones and runs its `./install`;
+the repo also deploys standalone (`git clone … && ./install`). See [docs/adr/0004](./docs/adr/0004-dotfiles-extracted-to-standalone-self-installing-repo.md).
 
 ## Go
 
@@ -85,4 +89,4 @@ In Neovim, Mason auto-installs `gopls` and `goimports` on first `.go` file; form
 
 - The CLI is the Homebrew formula **`tree-sitter-cli`**, not `tree-sitter` (that one is library-only, no binary). nvim-treesitter's `main` branch needs it to compile parsers, else builds fail with `ENOENT: 'tree-sitter'`.
 - nvim-treesitter is pinned to `branch = 'main'`. Use its API (`require('nvim-treesitter').install(parsers)`), **never** `require('nvim-treesitter.configs').setup{}` — that module exists only on the old `master` branch and errors on `main` (`attempt to call field 'install' (a nil value)` shows the reverse: a stale `master` checkout under a `main` spec). Fix a stale checkout: `cd ~/.local/share/nvim/lazy/nvim-treesitter && git fetch origin main && git checkout main && git reset --hard origin/main`.
-- The nvim config is a submodule of `6eniu5/kickstart.nvim` (default branch `master`); push there for new machines. `~/6eniu5/dotfiles` is a local-only stow target (no remote) — don't try to push it.
+- The nvim config is a submodule of `6eniu5/kickstart.nvim` (default branch `master`); push there for new machines. It is now a submodule of the standalone [`6eniu5/dotfiles`](https://github.com/6eniu5/dotfiles) repo — commit dotfiles changes there and push (it has a remote), unlike the old local-only stow target.

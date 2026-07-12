@@ -16,7 +16,7 @@ ESETUP_ORIGINAL_PATH="$PATH"
 ESETUP_ORIGINAL_SHELL="${SHELL:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOURCE_DOTFILES="${SCRIPT_DIR}/dotfiles"
+# Where the standalone dotfiles repo is cloned and stowed from (see docs/adr/0004).
 TARGET_DOTFILES="${TARGET_DOTFILES:-${HOME}/6eniu5/dotfiles}"
 # Decrypted key from 6eniu5/ssh vault; per-repo git core.sshCommand uses this (no global ~/.ssh/config Host github.com).
 ESETUP_SSH_IDENTITY="${ESETUP_SSH_IDENTITY:-${HOME}/.ssh/6eniu5_id_ed25519}"
@@ -736,16 +736,8 @@ preflight_environment() {
     fi
   fi
 
-  if [[ -d "${TARGET_DOTFILES}" ]]; then
-    local count
-    count="$(find "${TARGET_DOTFILES}" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l | tr -d ' ')"
-    if [[ "${count:-0}" -gt 0 ]] && [[ ! -d "${TARGET_DOTFILES}/.git" ]]; then
-      log_warn "${TARGET_DOTFILES} exists with content but has no .git (not a dotfiles repo yet)."
-      log_warn "Rsync will merge files from ${SOURCE_DOTFILES}; it will not delete extra files in the target."
-      if ! prompt_yes_no "Proceed with sync into ${TARGET_DOTFILES}?" n; then
-        exit 1
-      fi
-    fi
+  if [[ -e "${TARGET_DOTFILES}" ]] && [[ ! -d "${TARGET_DOTFILES}/.git" ]]; then
+    log_warn "${TARGET_DOTFILES} exists but is not the dotfiles git clone; setup_dotfiles will leave it alone."
   fi
 
   if docker_desktop_present && orbstack_present; then
@@ -795,73 +787,66 @@ preflight_environment() {
   fi
 }
 
-sync_dotfiles_to_home() {
-  log_info "Syncing ${SOURCE_DOTFILES} -> ${TARGET_DOTFILES}"
-  mkdir -p "${TARGET_DOTFILES}"
-  rsync -a \
-    --exclude '.git' \
-    --exclude 'nvim' \
-    --exclude 'tmux-sessionizer' \
-    "${SOURCE_DOTFILES}/" "${TARGET_DOTFILES}/"
+# Clone (or fast-forward) the standalone dotfiles repo, run its self-installer, and apply
+# the non-stowed artifact areas. The dotfiles now live in their own repo (6eniu5/dotfiles)
+# that stows itself with `--no-folding` — esetup no longer rsyncs, git-inits, or stows.
+# See docs/adr/0004.
+DOTFILES_REPO="${DOTFILES_REPO:-git@github.com:6eniu5/dotfiles.git}"
 
-  mkdir -p "${TARGET_DOTFILES}/nvim/.config"
-  mkdir -p "${TARGET_DOTFILES}/bin/.local/bin"
-
-  chmod +x "${TARGET_DOTFILES}/bin/.local/bin/tmux-cht.sh" 2>/dev/null || true
-}
-
-# Idempotently ensure one submodule exists, WITHOUT destroying a working tree.
-#
-# A live submodule's `.git` is a gitlink FILE ("gitdir: ../../.git/modules/..."),
-# not a directory. The old `[[ ! -d <path>/.git ]]` test was therefore true on every
-# run for a perfectly healthy submodule, and the branch it guarded did `rm -rf <path>`
-# before a network `git submodule add` that then failed ("already exists in the index")
-# into a log_warn. Uncommitted work in nvim/ or tmux-sessionizer/ was silently
-# destroyed and the run still exited 0. Test -e, never rm, and fail loudly.
-ensure_dotfiles_submodule() {
-  local path="$1" url="$2" name="$3"
-
-  [[ -e "${path}/.git" ]] && return 0
-
-  # Registered in .gitmodules but not checked out: `git submodule update` owns this.
-  if git config --file .gitmodules --get "submodule.${path}.url" &>/dev/null; then
-    log_info "Submodule ${name} already registered; leaving checkout to 'git submodule update'."
-    return 0
-  fi
-
-  # Unregistered content in the way. Move it aside -- never rm -rf.
-  if [[ -e "$path" ]]; then
-    local bak="${path}.bak.$(date +%s)"
-    mv "$path" "$bak"
-    log_warn "Moved existing ${path} to ${bak} before adding submodule ${name}."
-    record_manual "$name" "existing ${path} moved to ${bak}; nothing was deleted"
-  fi
-
-  if ! git submodule add "$url" "$path"; then
-    record_failed "$name" "git submodule add failed (SSH / network). Run: git submodule add ${url} ${path}"
-  fi
-}
-
-init_dotfiles_git() {
-  cd "${TARGET_DOTFILES}" || exit 2
-  [[ -d .git ]] || git init
-
+# git wrapper: use the 6eniu5 SSH identity if the vault decrypted it, else the default
+# SSH/agent. NEVER set an empty GIT_SSH_COMMAND — that breaks the fetch/clone.
+_dotfiles_git() {
   if [[ -f "$ESETUP_SSH_IDENTITY" ]]; then
-    # -F /dev/null bypasses ~/.ssh/config so its IdentityFile directives
-    # don't shadow the 6eniu5 key.
-    local ssh_cmd="ssh -F /dev/null -i \"$ESETUP_SSH_IDENTITY\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=\"$HOME/.ssh/known_hosts\""
-    git config core.sshCommand "$ssh_cmd"
-    log_info "Dotfiles repo will use ${ESETUP_SSH_IDENTITY} for git@github.com (per-repo only, ~/.ssh/config bypassed)."
+    GIT_SSH_COMMAND="ssh -F /dev/null -i $ESETUP_SSH_IDENTITY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts" git "$@"
+  else
+    git "$@"
+  fi
+}
+
+setup_dotfiles() {
+  if [[ -d "${TARGET_DOTFILES}/.git" ]]; then
+    log_info "Updating dotfiles repo (${TARGET_DOTFILES})..."
+    _dotfiles_git -C "${TARGET_DOTFILES}" pull --ff-only 2>/dev/null \
+      || log_warn "dotfiles pull skipped (up to date, local changes, or offline); using the local checkout."
+    _dotfiles_git -C "${TARGET_DOTFILES}" submodule update --init --recursive 2>/dev/null || true
+  elif [[ -e "${TARGET_DOTFILES}" ]]; then
+    log_warn "${TARGET_DOTFILES} exists but is not the dotfiles repo."
+    record_manual "dotfiles" "${TARGET_DOTFILES} exists and is not a git clone; move it aside and re-run"
+    return 0
+  else
+    log_info "Cloning ${DOTFILES_REPO} -> ${TARGET_DOTFILES}..."
+    if ! _dotfiles_git clone --recurse-submodules "$DOTFILES_REPO" "${TARGET_DOTFILES}"; then
+      record_failed "dotfiles" "git clone ${DOTFILES_REPO} failed (SSH / network)"
+      return 0
+    fi
   fi
 
-  ensure_dotfiles_submodule nvim/.config/nvim git@github.com:6eniu5/kickstart.nvim.git nvim
-  ensure_dotfiles_submodule tmux-sessionizer git@github.com:6eniu5/tmux-sessionizer.git tmux-sessionizer
-
-  if ! git submodule update --init --recursive; then
-    record_failed "dotfiles-submodules" "git submodule update --init --recursive failed (SSH / network)"
+  # Self-installing: the repo stows its packages into $HOME with --no-folding.
+  if [[ -x "${TARGET_DOTFILES}/install" ]]; then
+    if ! ( cd "${TARGET_DOTFILES}" && ./install ); then
+      record_failed "dotfiles" "dotfiles ./install failed"
+    fi
+  else
+    record_failed "dotfiles" "dotfiles repo has no executable ./install"
   fi
-  if [[ -f "${TARGET_DOTFILES}/tmux-sessionizer/tmux-sessionizer" ]]; then
-    ln -sf ../../../tmux-sessionizer/tmux-sessionizer "${TARGET_DOTFILES}/bin/.local/bin/tmux-sessionizer"
+
+  apply_dotfiles_artifacts
+}
+
+# Non-stowed artifact areas the installer applies rather than symlinks.
+apply_dotfiles_artifacts() {
+  # Raycast: import the baseline export if present (opens Raycast to handle the import).
+  local rc="${TARGET_DOTFILES}/raycast/baseline.rayconfig"
+  if [[ -f "$rc" ]] && brew_owns_cask raycast; then
+    if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+      record_manual "raycast" "baseline export at ${rc}; import it via Raycast when convenient"
+    elif prompt_yes_no "Import baseline Raycast config (${rc})?" n; then
+      open "$rc" && log_info "Raycast import triggered; follow the Raycast UI to finish."
+    fi
+  fi
+  # Keyboard: Advantage360 SmartSet layouts live in the repo; loading them is manual in the app.
+  if [[ -d "${TARGET_DOTFILES}/keyboard" ]]; then
+    log_info "Advantage360 SmartSet layouts: ${TARGET_DOTFILES}/keyboard (load via the SmartSet app)."
   fi
 }
 
@@ -1176,66 +1161,6 @@ disable_spotlight_hotkey() {
   log_info "Spotlight hotkey disabled. Log out and back in (or reboot) for the change to take effect."
 }
 
-optional_raycast_import() {
-  local rc="${SCRIPT_DIR}/raycast/baseline.rayconfig"
-  [[ -f "$rc" ]] || return 0
-  # Opens the Raycast UI and waits for a human. Never unattended.
-  [[ "$NONINTERACTIVE" -eq 1 ]] && return 0
-  if ! prompt_yes_no "Import baseline Raycast config (${rc})?" n; then
-    return 0
-  fi
-  open "$rc"
-  log_info "Raycast import triggered. Follow the Raycast UI to complete."
-}
-
-stow_one_package() {
-  local pkg="$1"
-  local target_path
-  case "$pkg" in
-    fish) target_path="${HOME}/.config/fish" ;;
-    starship) target_path="${HOME}/.config/starship.toml" ;;
-    wezterm) target_path="${HOME}/.config/wezterm" ;;
-    tmux) target_path="${HOME}/.tmux.conf" ;;
-    tmux-sessionizer-config) target_path="${HOME}/.config/tmux-sessionizer" ;;
-    bin) target_path="${HOME}/.local/bin" ;;
-    nvim) target_path="${HOME}/.config/nvim" ;;
-    *) target_path="" ;;
-  esac
-
-  if [[ -n "$target_path" ]] && [[ -e "$target_path" ]] && [[ ! -L "$target_path" ]]; then
-    # Unattended, `read` sees no stdin, `ans` is empty, the default `n` wins, and
-    # your config silently stops being stowed. Surface it instead of warning.
-    if [[ "$NONINTERACTIVE" -eq 1 ]]; then
-      record_manual "stow:${pkg}" "${target_path} exists and is not a symlink; move it aside, then re-run"
-      return 0
-    fi
-    if prompt_yes_no "${target_path} exists and is not a symlink. Move to ${target_path}.bak and stow package '${pkg}'?" n; then
-      mv "$target_path" "${target_path}.bak.$(date +%s)"
-    else
-      log_warn "Skipping stow for package: $pkg"
-      return 0
-    fi
-  fi
-
-  # tmux package also links .tmux-cht-*; ensure parent exists
-  mkdir -p "${HOME}/.config"
-
-  (cd "${TARGET_DOTFILES}" && stow --target="${HOME}" "$pkg")
-  log_info "Stowed package: $pkg"
-}
-
-run_stow_all() {
-  command -v stow &>/dev/null || return 0
-  local pkgs=(fish starship wezterm tmux tmux-sessionizer-config bin nvim)
-  for p in "${pkgs[@]}"; do
-    if [[ -d "${TARGET_DOTFILES}/${p}" ]]; then
-      stow_one_package "$p"
-    else
-      log_warn "Stow package dir missing: ${TARGET_DOTFILES}/${p}"
-    fi
-  done
-}
-
 set_fish_default_shell() {
   command -v fish &>/dev/null || return 0
   local fish_path
@@ -1365,11 +1290,12 @@ run_claude_only() {
     trust_brew_taps
     build_ownership
     if [[ "$IF_INSTALLED" == "upgrade" ]]; then
+      command -v jq &>/dev/null || brew install jq || true
       build_plan
     fi
   fi
-  install_claude
-  setup_claude_skills
+  install_claude || record_failed "claude-code" "install_claude failed (native installer / cask)"
+  setup_claude_skills || record_failed "claude-skills" "skills sync failed"
   log_info "Claude + skills done."
   print_action_summary
   # Same exit contract as main(): Failed is transient and must be loud.
@@ -1448,6 +1374,12 @@ main() {
         echo "Env: TARGET_DOTFILES (default: \$HOME/6eniu5/dotfiles)"
         exit 0
         ;;
+      *)
+        # Without this, a typo'd flag (e.g. --upgade) was silently ignored, so an
+        # intended unattended --upgrade ran as a fully interactive setup.
+        log_error "Unknown flag: $arg  (see: $0 --help)"
+        exit 2
+        ;;
     esac
   done
 
@@ -1477,6 +1409,9 @@ main() {
   # taps (bun, from oven-sh/bun) can be missing from the diff and silently look
   # up-to-date. It comes BEFORE preflight so a network failure costs nothing.
   if [[ "$IF_INSTALLED" == "upgrade" ]]; then
+    # build_plan needs jq, but jq isn't installed until the formulas loop below —
+    # a chicken-and-egg trap for --upgrade on a fresh machine. Bootstrap it here.
+    command -v jq &>/dev/null || brew install jq || true
     build_plan
   fi
 
@@ -1560,34 +1495,36 @@ main() {
   brew_install_cask raycast "Raycast"
   if brew_owns_cask raycast; then
     disable_spotlight_hotkey
-    optional_raycast_import
   fi
 
-  install_claude
+  # Guarded: a curl blip in the native Claude installer must not abort the whole run
+  # (the brew path is failure-isolated; this makes the non-brew installers match).
+  install_claude || record_failed "claude-code" "install_claude failed (native installer / cask)"
 
   local fonts=(
     font-cascadia-code font-hack-nerd-font font-meslo-lg-nerd-font font-fira-code
-    font-jetbrains-mono font-jetbrains-mono-nerd-font
+    font-jetbrains-mono font-jetbrains-mono-nerd-font font-vazirmatn
   )
   for fc in "${fonts[@]}"; do
     brew_install_cask "$fc" "$fc"
   done
 
-  sync_dotfiles_to_home
-  init_dotfiles_git
+  # Dotfiles: clone the standalone repo, run its self-installer (stow --no-folding),
+  # and apply non-stowed artifacts. Replaces the old rsync + git-init + per-package stow.
+  setup_dotfiles
 
-  run_fnm_default_node
-  run_rustup_default_toolchain
+  run_fnm_default_node || record_failed "node" "fnm default-node setup failed"
+  run_rustup_default_toolchain || record_failed "rust" "rustup toolchain setup failed"
 
-  optional_karabiner_manager
+  optional_karabiner_manager || record_failed "karabiner-manager" "karabiner build/config failed"
 
   # Non-Artifact, idempotent (git pull + symlinks): --upgrade runs it.
   if [[ "$NONINTERACTIVE" -eq 1 ]] || prompt_yes_no "Set up Claude Code skills (fork submodule + ~/.claude/skills symlinks)?" y; then
-    setup_claude_skills
+    setup_claude_skills || record_failed "claude-skills" "skills sync failed (git fetch/push)"
   fi
 
-  optional_miniconda
-  optional_sdkman
+  optional_miniconda || record_failed "miniconda" "miniconda install failed"
+  optional_sdkman || record_failed "sdkman" "sdkman install failed"
 
   link_homebrew_completions_for_fish
 
@@ -1595,12 +1532,6 @@ main() {
   # Non-Artifact, idempotent (ensure_line_in_file): --upgrade applies it.
   if [[ "$NONINTERACTIVE" -eq 1 ]] || prompt_yes_no "Apply known caveat actions now?" n; then
     apply_known_caveat_actions
-  fi
-
-  # Non-Artifact, idempotent (stow re-links without complaint): --upgrade runs it.
-  # This is what repairs a symlink after neovim moves. Skipping it would be wrong.
-  if [[ "$NONINTERACTIVE" -eq 1 ]] || prompt_yes_no "Run stow to link ${TARGET_DOTFILES} into \$HOME?" y; then
-    run_stow_all
   fi
 
   # set_fish_default_shell records a Manual entry rather than chsh-ing unattended.
