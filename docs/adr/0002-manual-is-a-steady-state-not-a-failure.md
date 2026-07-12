@@ -23,8 +23,12 @@ Five cheap booleans, none of which requires parsing a version (see ADR-0001):
   hand-maintained `gnu-sed`→`gsed` map. Checked **before** converging an Artifact brew already
   owns (`brew ls` works on an installed keg), and **after** installing one it didn't — upgrading a
   copy the user never executes is wasted work, and it would make the report incoherent: an entry
-  cannot be both "will not converge" and converged. `atuin` (shadowed by `~/.atuin/bin/atuin`) and
-  `claude-code` (by `~/.local/bin/claude`) are the two live instances.
+  cannot be both "will not converge" and converged. Two instances existed on the author's machine
+  and were resolved by removing the shadowing copy, not by code: `atuin` (a stale self-managed
+  `~/.atuin/bin/atuin` 18.13.3 sourced by the bash/zsh rc files — retired so brew's 18.16.1 wins)
+  and `claude-code` (the brew cask dropped for the native, self-updating install — see ADR-0003).
+  That is what the steady-state report is *for*: a Shadowed entry is a standing instruction to pick
+  one copy.
 - **Foreign** — not Brew-owned, yet something of that name is on PATH; installing would create a
   second copy and let PATH order pick the winner. Detected *before* acting, by name. Brew cannot
   help here: for an uninstalled formula, `brew ls` errors and the formula JSON has no binary key.

@@ -1183,10 +1183,13 @@ install_claude_code_native() {
 }
 
 # Anthropic Claude, per host:
-#   macOS  — the desktop app (cask `claude` = Chat/Cowork/Code GUI, auto-updates) AND the
-#            terminal CLI (cask `claude-code` = the `claude` binary). Separate artifacts, no
-#            single bundle. Kept brew-managed so --skip/--upgrade-installed-brew apply, and a
-#            brew install makes Claude Code defer self-updates to `brew upgrade`.
+#   macOS  — the desktop app (cask `claude` = Chat/Cowork/Code GUI, auto-updates) stays a cask.
+#            The CLI uses the NATIVE installer, not the `claude-code` cask. We tried brew-managing
+#            it "so Claude Code defers self-updates to brew" — but the native updater wins in
+#            practice: it self-updates into ~/.local/share/claude/versions and its ~/.local/bin
+#            symlink shadows the older brew copy, so the two race and the report flags claude-code
+#            as shadowed forever. One self-updating copy (native) is the only stable end state.
+#            --upgrade therefore no longer manages Claude Code; it updates itself.
 #   Linux/WSL (or unknown) — no official desktop cask exists, so install just the Claude Code
 #            CLI via the native installer. On WSL this is the in-distro Linux CLI; the Windows
 #            desktop app (if wanted) is installed separately on the Windows side.
@@ -1194,11 +1197,8 @@ install_claude() {
   [[ -n "$OS_KIND" ]] || detect_os
   if [[ "$OS_KIND" == "macos" ]]; then
     brew_install_cask claude "Claude (desktop app)"
-    brew_install_cask claude-code "Claude Code (CLI)"
-  else
-    log_info "No official Claude desktop app on ${OS_KIND}; installing the Claude Code CLI only."
-    install_claude_code_native
   fi
+  install_claude_code_native
 }
 
 # Personal fork of mattpocock/skills (the `skills` submodule) symlinked into
