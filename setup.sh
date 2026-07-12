@@ -1116,6 +1116,15 @@ optional_voiceink() {
   fi
   mv "$app_src" "$app_dst"
   log_info "Installed VoiceInk to ${app_dst}. First launch: right-click → Open (ad-hoc signed; Gatekeeper prompts once)."
+
+  # The installed .app embeds everything it needs, so the app build output is throwaway.
+  # Prune it (~1.5G) but KEEP ~/VoiceInk-Dependencies (the whisper.cpp cache is slow to
+  # regenerate and re-risks the Xcode-26 cmake breakage) and the lean source clone (the
+  # update path). Only runs after a successful install, so a failed build keeps its cache.
+  if [[ -d "${build_dir}/.local-build" ]]; then
+    rm -rf "${build_dir}/.local-build"
+    log_info "Pruned VoiceInk app build output (${build_dir}/.local-build)."
+  fi
 }
 
 optional_miniconda() {
