@@ -19,8 +19,17 @@ _Avoid_: package, dependency
 
 **Non-Artifact**:
 A step in `setup.sh` that changes the machine but has no version to diff: stowing, `chsh`,
-applying caveat actions, the Karabiner build. Never part of a Plan. Under `--upgrade` the
-idempotent ones run and the destructive ones are suppressed into Manual.
+applying caveat actions, the Karabiner build, the VoiceInk Source Build. Never part of a Plan.
+Under `--upgrade` the idempotent ones run and the destructive ones are suppressed into Manual.
+
+**Source Build**:
+A Non-Artifact that clones an upstream GPL repo, compiles it locally, and installs the
+resulting app — chosen where the brew cask is paid or license-gated. VoiceInk is the first:
+its cask is a paywalled pre-built binary, but the GPL-3.0 source builds free (`make local`,
+ad-hoc signed). Carries an upstream version but no Plan; updated by re-running the build
+(`git pull`), never `brew upgrade`. Heavy and destructive, so like the Karabiner build it is
+suppressed into Manual under `--upgrade`.
+_Avoid_: Artifact (no brew receipt, no Version Diff)
 
 ### Ownership
 
