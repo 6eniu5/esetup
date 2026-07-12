@@ -1432,7 +1432,7 @@ main() {
   optional_voiceink
 
   local formulas=(
-    eza zoxide starship ripgrep bat fd gnu-sed atuin lazygit gh jq stow tmux fzf fnm neovim go tree-sitter-cli
+    eza zoxide starship ripgrep bat fd gnu-sed atuin lazygit gh jq stow tmux fzf fnm neovim go tree-sitter-cli flamegraph
   )
   for f in "${formulas[@]}"; do
     brew_install_formula "$f" "$f"
