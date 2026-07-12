@@ -115,5 +115,11 @@ return {
     { key = "N", mods = "CMD|SHIFT", action = "SpawnWindow" },
 
     { key = " ", mods = "CMD|SHIFT", action = "QuickSelect" },
+
+    -- Copy Mode: keyboard-driven selection over the terminal scrollback (no mouse).
+    -- Uses WezTerm's built-in copy_mode key table: hjkl move, v selects, y/Enter
+    -- copies and exits, q/Esc cancels. Handy for copying a TUI response like Claude Code
+    -- without holding Shift and dragging.
+    { key = "x", mods = "CMD|SHIFT", action = "ActivateCopyMode" },
   },
 }
