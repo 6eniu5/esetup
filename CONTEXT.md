@@ -33,6 +33,13 @@ Folding a config from a stray or older source (loose files, the `f412h4d/.dotfil
 `~/.config`) into the Dotfiles Repo, keeping the union of features so nothing is lost. Judged
 against the live config, which is authoritative for "what I run now."
 
+**Submodule Generator**:
+A standalone repo, vendored as a git submodule, that *generates* config into a
+target rather than shipping static files — `karabiner-manager` (`rules.ts` →
+`karabiner.json`) and `obsidian-habit-tracker` (`habits.md` → the Habits vault).
+Wired in by an `optional_*` step (a Non-Artifact); the generated output is data
+the installer produces, not part of the Declared Set.
+
 
 
 ### The install surface

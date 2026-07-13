@@ -1012,6 +1012,76 @@ optional_karabiner_manager() {
   fi
 }
 
+optional_obsidian_habit_tracker() {
+  # Non-Artifact, and it writes into the iCloud container: builds the Habits vault
+  # from the obsidian-habit-tracker submodule (habits.md -> generated files) and
+  # deploys it. The .obsidian config + pinned plugins come from the dotfiles
+  # `obsidian` package. See CONTEXT.md and docs/adr/0005. Mirrors the
+  # karabiner-manager submodule-generator pattern.
+  if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+    record_manual "obsidian-habit-tracker" "deploy writes into the iCloud container; run setup.sh interactively"
+    return 0
+  fi
+  if ! prompt_yes_no "Set up the Habits Obsidian vault from the obsidian-habit-tracker submodule?" n; then
+    return 0
+  fi
+
+  local oht_dir="${SCRIPT_DIR}/obsidian-habit-tracker"
+  if [[ ! -f "${oht_dir}/package.json" ]]; then
+    if [[ -d "${SCRIPT_DIR}/.git" ]]; then
+      log_info "Initializing obsidian-habit-tracker submodule..."
+      if ! git -C "${SCRIPT_DIR}" submodule update --init --recursive obsidian-habit-tracker; then
+        log_warn "Submodule init failed. From the esetup repo root run: git submodule update --init --recursive"
+        return 1
+      fi
+    else
+      log_warn "obsidian-habit-tracker missing at ${oht_dir} and ${SCRIPT_DIR} is not a git repo; clone esetup with submodules."
+      return 1
+    fi
+  fi
+  [[ -f "${oht_dir}/package.json" ]] || { log_error "obsidian-habit-tracker submodule still missing (no package.json)."; return 1; }
+
+  # Obsidian.app — Bases needs >= 1.12.4; the cask installs current stable.
+  brew_install_cask obsidian "Obsidian"
+
+  if ! command -v bun &>/dev/null; then
+    log_error "bun not on PATH. Install bun (earlier brew step), then: cd \"${oht_dir}\" && bun install && bun run sync"
+    return 1
+  fi
+
+  local vault="${OBSIDIAN_HABITS_VAULT:-$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents/Habits}"
+  if ! (
+    cd "$oht_dir" || exit 1
+    bun install || exit 1
+    bun run sync || exit 1
+    bun run deploy --vault "$vault" --apply || exit 1
+  ); then
+    log_warn "obsidian-habit-tracker build/deploy failed."
+    return 1
+  fi
+
+  # Lay down the .obsidian config + pinned plugins from the dotfiles `obsidian`
+  # package. setup_dotfiles ran before the vault existed, so its copy was skipped;
+  # do it now (rsync, no --delete, so the generator's types.json stays).
+  local obs_src="${TARGET_DOTFILES}/obsidian/vault-obsidian"
+  if [[ -d "$obs_src" ]]; then
+    mkdir -p "$vault/.obsidian"
+    rsync -a "${obs_src}/" "$vault/.obsidian/"
+    log_info "Copied .obsidian config + plugins into the Habits vault."
+  else
+    log_warn "dotfiles obsidian package not found at ${obs_src}; run the dotfiles ./install after the vault exists."
+  fi
+
+  brctl download "$vault" 2>/dev/null || true  # keep iCloud from evicting the vault locally
+
+  if prompt_yes_no "Seed 45 days of sample data to preview the dashboards (removable with --clean)?" n; then
+    ( cd "$oht_dir" && bun run seed --vault "$vault" --days 45 --apply ) || log_warn "sample-data seed failed"
+  fi
+
+  log_info "Habits vault ready at ${vault}"
+  log_warn "Update Obsidian to >= 1.12.4 on Mac AND iPhone (Bases won't work otherwise). On iOS the vault appears under the iCloud heading."
+}
+
 # VoiceInk: a Source Build (see CONTEXT.md). The brew cask `voiceink` is the paid,
 # license-gated pre-built binary (7-day trial, then $25+). The GPL-3.0 source builds
 # for free with `make local` (ad-hoc signing, no Apple Developer cert). This is a
@@ -1517,6 +1587,8 @@ main() {
   run_rustup_default_toolchain || record_failed "rust" "rustup toolchain setup failed"
 
   optional_karabiner_manager || record_failed "karabiner-manager" "karabiner build/config failed"
+
+  optional_obsidian_habit_tracker || record_failed "obsidian-habit-tracker" "vault build/deploy failed"
 
   # Non-Artifact, idempotent (git pull + symlinks): --upgrade runs it.
   if [[ "$NONINTERACTIVE" -eq 1 ]] || prompt_yes_no "Set up Claude Code skills (fork submodule + ~/.claude/skills symlinks)?" y; then

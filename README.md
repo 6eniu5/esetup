@@ -59,6 +59,23 @@ launchctl kickstart -k "gui/$(id -u)/org.pqrs.karabiner.karabiner_console_user_s
 
 **Raycast follow-up:** many Hyper-key bindings open `raycast://…` deep links (built-in Raycast commands plus third-party extensions such as Toothpick, Silent Mention, and custom script commands). Until those extensions or scripts are installed, some shortcuts may do nothing or show an error in Raycast. A future pass can document required extensions or trim `rules.ts` to match what you actually install.
 
+## Obsidian Habits
+
+The repo includes a **git submodule** at [`obsidian-habit-tracker`](./obsidian-habit-tracker) ([`6eniu5/obsidian-habit-tracker`](https://github.com/6eniu5/obsidian-habit-tracker)): a generator that turns `habits.md` into a full Obsidian **Habits** vault (daily-note template, Bases views, heatmaps, streak dashboard). Same pattern as `karabiner-manager`. See [docs/adr/0005](./docs/adr/0005-obsidian-habit-tracker-submodule.md).
+
+During `./esetup/setup.sh`, after the Karabiner step, you can opt in to
+`optional_obsidian_habit_tracker`: it initializes the submodule, installs the
+**Obsidian** cask, runs `bun install && bun run sync`, and deploys the vault into
+the Obsidian iCloud container (override with `OBSIDIAN_HABITS_VAULT`), then copies
+in the `.obsidian` config + pinned plugins from the dotfiles `obsidian` package.
+
+**Obsidian ≥ 1.12.4 required** on Mac *and* iPhone — Bases (the dashboard engine)
+does not exist before then. Rebuild/redeploy by hand after editing habits:
+
+```bash
+cd obsidian-habit-tracker && bun run add-habit   # or: edit habits.md && bun run sync && bun run deploy --apply
+```
+
 ## Requirements
 
 - macOS
