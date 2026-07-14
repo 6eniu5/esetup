@@ -36,9 +36,10 @@ against the live config, which is authoritative for "what I run now."
 **Submodule Generator**:
 A standalone repo, vendored as a git submodule, that *generates* config into a
 target rather than shipping static files — `karabiner-manager` (`rules.ts` →
-`karabiner.json`) and `obsidian-habit-tracker` (`habits.md` → the Habits vault).
-Wired in by an `optional_*` step (a Non-Artifact); the generated output is data
-the installer produces, not part of the Declared Set.
+`karabiner.json`), `obsidian-habit-tracker` (`habits.md` → the Habits vault), and
+`obsidian-lingo` (`lingo.yaml` → the Lingo vault scaffold). Wired in by an
+`optional_*` step (a Non-Artifact); the generated output is data the installer
+produces, not part of the Declared Set.
 
 
 

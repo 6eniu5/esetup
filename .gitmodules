@@ -7,3 +7,6 @@
 [submodule "obsidian-habit-tracker"]
 	path = obsidian-habit-tracker
 	url = git@github.com:6eniu5/obsidian-habit-tracker.git
+[submodule "obsidian-lingo"]
+	path = obsidian-lingo
+	url = git@github.com:6eniu5/obsidian-lingo.git

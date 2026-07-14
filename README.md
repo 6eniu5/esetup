@@ -76,6 +76,17 @@ does not exist before then. Rebuild/redeploy by hand after editing habits:
 cd obsidian-habit-tracker && bun run add-habit   # or: edit habits.md && bun run sync && bun run deploy --apply
 ```
 
+## Obsidian Lingo
+
+A second generator submodule at [`obsidian-lingo`](./obsidian-lingo) ([`6eniu5/obsidian-lingo`](https://github.com/6eniu5/obsidian-lingo)): a config-driven generator for the **Lingo** language-learning vault — language-agnostic Concepts + per-language flashcards reviewed with obsidian-spaced-repetition (FSRS). Same submodule pattern as `obsidian-habit-tracker`; adding a language is one command (`bun run add-language Spanish`). See [docs/adr/0006](./docs/adr/0006-obsidian-lingo-submodule.md).
+
+During `./esetup/setup.sh`, `optional_obsidian_lingo` (after the Habits step)
+inits the submodule, runs `bun install && bun run sync`, deploys the scaffold
+(templates + `.obsidian/types.json`) into the iCloud container
+(`OBSIDIAN_LINGO_VAULT`), and copies the `.obsidian` config + spaced-repetition
+plugin from the dotfiles `obsidian/lingo` package. Your cards are content and sync
+via iCloud; the generator never touches them.
+
 ## Requirements
 
 - macOS

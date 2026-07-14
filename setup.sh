@@ -1082,6 +1082,67 @@ optional_obsidian_habit_tracker() {
   log_warn "Update Obsidian to >= 1.12.4 on Mac AND iPhone (Bases won't work otherwise). On iOS the vault appears under the iCloud heading."
 }
 
+optional_obsidian_lingo() {
+  # Non-Artifact, writes into the iCloud container: scaffolds the Lingo
+  # language-learning vault (templates + .obsidian config) from the obsidian-lingo
+  # submodule. Cards are your content (synced via iCloud); deploy never touches
+  # them. Mirrors optional_obsidian_habit_tracker. See CONTEXT.md and docs/adr/0006.
+  if [[ "$NONINTERACTIVE" -eq 1 ]]; then
+    record_manual "obsidian-lingo" "deploy writes into the iCloud container; run setup.sh interactively"
+    return 0
+  fi
+  if ! prompt_yes_no "Set up the Lingo language-learning vault from the obsidian-lingo submodule?" n; then
+    return 0
+  fi
+
+  local ol_dir="${SCRIPT_DIR}/obsidian-lingo"
+  if [[ ! -f "${ol_dir}/package.json" ]]; then
+    if [[ -d "${SCRIPT_DIR}/.git" ]]; then
+      log_info "Initializing obsidian-lingo submodule..."
+      if ! git -C "${SCRIPT_DIR}" submodule update --init --recursive obsidian-lingo; then
+        log_warn "Submodule init failed. From the esetup repo root run: git submodule update --init --recursive"
+        return 1
+      fi
+    else
+      log_warn "obsidian-lingo missing at ${ol_dir} and ${SCRIPT_DIR} is not a git repo; clone esetup with submodules."
+      return 1
+    fi
+  fi
+  [[ -f "${ol_dir}/package.json" ]] || { log_error "obsidian-lingo submodule still missing (no package.json)."; return 1; }
+
+  brew_install_cask obsidian "Obsidian" # idempotent; shared with the Habits step
+
+  if ! command -v bun &>/dev/null; then
+    log_error "bun not on PATH. Install bun (earlier brew step), then: cd \"${ol_dir}\" && bun install && bun run sync"
+    return 1
+  fi
+
+  local vault="${OBSIDIAN_LINGO_VAULT:-$HOME/Library/Mobile Documents/iCloud~md~obsidian/Documents/Lingo}"
+  if ! (
+    cd "$ol_dir" || exit 1
+    bun install || exit 1
+    bun run sync || exit 1
+    bun run deploy --vault "$vault" --apply || exit 1
+  ); then
+    log_warn "obsidian-lingo build/deploy failed."
+    return 1
+  fi
+
+  local obs_src="${TARGET_DOTFILES}/obsidian/lingo/vault-obsidian"
+  if [[ -d "$obs_src" ]]; then
+    mkdir -p "$vault/.obsidian"
+    rsync -a "${obs_src}/" "$vault/.obsidian/"
+    log_info "Copied .obsidian config + spaced-repetition plugin into the Lingo vault."
+  else
+    log_warn "dotfiles obsidian/lingo package not found at ${obs_src}; run the dotfiles ./install after the vault exists."
+  fi
+
+  brctl download "$vault" 2>/dev/null || true
+
+  log_info "Lingo vault ready at ${vault}"
+  log_warn "Enable the obsidian-spaced-repetition plugin on first open (Restricted mode off). Your cards sync from iCloud."
+}
+
 # VoiceInk: a Source Build (see CONTEXT.md). The brew cask `voiceink` is the paid,
 # license-gated pre-built binary (7-day trial, then $25+). The GPL-3.0 source builds
 # for free with `make local` (ad-hoc signing, no Apple Developer cert). This is a
@@ -1589,6 +1650,8 @@ main() {
   optional_karabiner_manager || record_failed "karabiner-manager" "karabiner build/config failed"
 
   optional_obsidian_habit_tracker || record_failed "obsidian-habit-tracker" "vault build/deploy failed"
+
+  optional_obsidian_lingo || record_failed "obsidian-lingo" "vault build/deploy failed"
 
   # Non-Artifact, idempotent (git pull + symlinks): --upgrade runs it.
   if [[ "$NONINTERACTIVE" -eq 1 ]] || prompt_yes_no "Set up Claude Code skills (fork submodule + ~/.claude/skills symlinks)?" y; then
