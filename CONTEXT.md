@@ -43,6 +43,18 @@ produces, not part of the Declared Set.
 
 
 
+### Code layout
+
+**Module**:
+A sourced per-tool file under `modules/` (`rust.sh`, `node.sh`, `voiceink.sh`, …) holding one
+tool's leaf install routine(s). `source`d into the single `setup.sh` process — never executed
+standalone — so it shares every global, helper, ownership array, the Plan, and the accumulating
+Manual list. `main()` calls its functions in explicit order; sourcing only *defines* them.
+Modules are enumerated by explicit `source` lines (like the Declared Set, *not* discovered by
+glob) and carry no shebang and no exec bit. The shared machinery — logging, ownership, the Plan,
+the brew Steps (`_formula_step`/`_cask_step`), preflight, and `main()` — stays in `setup.sh`.
+_Avoid_: script (a Module is not standalone-runnable, unlike the executables in `scripts/`)
+
 ### The install surface
 
 **Declared Set**:
