@@ -17,9 +17,9 @@ ESETUP_ORIGINAL_SHELL="${SHELL:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Where the standalone dotfiles repo is cloned and stowed from (see docs/adr/0004).
-TARGET_DOTFILES="${TARGET_DOTFILES:-${HOME}/6eniu5/dotfiles}"
-# Decrypted key from 6eniu5/ssh vault; per-repo git core.sshCommand uses this (no global ~/.ssh/config Host github.com).
-ESETUP_SSH_IDENTITY="${ESETUP_SSH_IDENTITY:-${HOME}/.ssh/6eniu5_id_ed25519}"
+TARGET_DOTFILES="${TARGET_DOTFILES:-${HOME}/kernvex/dotfiles}"
+# Decrypted key from kernvex/ssh vault; per-repo git core.sshCommand uses this (no global ~/.ssh/config Host github.com).
+ESETUP_SSH_IDENTITY="${ESETUP_SSH_IDENTITY:-${HOME}/.ssh/kernvex_id_ed25519}"
 
 # Set by preflight_environment; 1 = do not install OrbStack cask this run
 SKIP_ORBSTACK=0
@@ -788,10 +788,10 @@ preflight_environment() {
 }
 
 # Clone (or fast-forward) the standalone dotfiles repo, run its self-installer, and apply
-# the non-stowed artifact areas. The dotfiles now live in their own repo (6eniu5/dotfiles)
+# the non-stowed artifact areas. The dotfiles now live in their own repo (kernvex/dotfiles)
 # that stows itself with `--no-folding` — esetup no longer rsyncs, git-inits, or stows.
 # See docs/adr/0004.
-DOTFILES_REPO="${DOTFILES_REPO:-git@github.com:6eniu5/dotfiles.git}"
+DOTFILES_REPO="${DOTFILES_REPO:-git@github.com:kernvex/dotfiles.git}"
 
 # Classify the host so the skills-only path can run on macOS, native Linux, and
 # WSL. WSL is a Linux kernel that reports "microsoft"/"WSL" in /proc/version (or
@@ -931,7 +931,7 @@ main() {
         echo "Exit codes: 0 = converged (some artifacts may need attention), 1 = an artifact failed,"
         echo "            2 = the run could not start (no brew/jq, brew update failed, bad flags)."
         echo "Aliases: --skip-installed-brew, --upgrade-installed-brew (pre-Plan names)."
-        echo "Env: TARGET_DOTFILES (default: \$HOME/6eniu5/dotfiles)"
+        echo "Env: TARGET_DOTFILES (default: \$HOME/kernvex/dotfiles)"
         exit 0
         ;;
       *)
