@@ -1061,9 +1061,16 @@ main() {
   # (the brew path is failure-isolated; this makes the non-brew installers match).
   install_claude || record_failed "claude-code" "install_claude failed (native installer / cask)"
 
+  # The last three are load-bearing for the WezTerm Persian fallback, in that order
+  # (see wezterm.lua). A terminal gives every character one cell, so the fallback is
+  # chosen by advance width: DejaVu Sans Mono carries Persian at ~cell width, which is
+  # what keeps the cursive joins from coming apart. Cascadia covers Arabic too and must
+  # stay behind it; Vazirmatn is the coverage backstop. Dropping font-dejavu here does
+  # not fail the run -- it silently demotes Persian to the next face that matches.
   local fonts=(
-    font-cascadia-code font-hack-nerd-font font-meslo-lg-nerd-font font-fira-code
-    font-jetbrains-mono font-jetbrains-mono-nerd-font font-vazirmatn
+    font-hack-nerd-font font-meslo-lg-nerd-font font-fira-code
+    font-jetbrains-mono font-jetbrains-mono-nerd-font
+    font-dejavu font-cascadia-code font-vazirmatn
   )
   for fc in "${fonts[@]}"; do
     brew_install_cask "$fc" "$fc"
