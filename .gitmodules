@@ -1,12 +1,15 @@
 [submodule "karabiner-manager"]
 	path = karabiner-manager
-	url = git@github.com:6eniu5/karabiner-manager.git
+	url = git@github.com:kernvex/karabiner-manager.git
 [submodule "skills"]
 	path = skills
-	url = git@github.com:6eniu5/skills.git
+	url = git@github.com:kernvex/skills.git
 [submodule "obsidian-habit-tracker"]
 	path = obsidian-habit-tracker
-	url = git@github.com:6eniu5/obsidian-habit-tracker.git
+	url = git@github.com:kernvex/obsidian-habit-tracker.git
 [submodule "obsidian-lingo"]
 	path = obsidian-lingo
-	url = git@github.com:6eniu5/obsidian-lingo.git
+	url = git@github.com:kernvex/obsidian-lingo.git
+[submodule "obsidian-job-doc"]
+	path = obsidian-job-doc
+	url = git@github.com:kernvex/obsidian-job-doc.git
