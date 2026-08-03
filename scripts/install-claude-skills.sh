@@ -127,3 +127,10 @@ else
 fi
 link_skills                           # idempotent; picks up any newly-synced skills
 echo "✓ Done. Skills linked into ${CLAUDE_SKILLS_DIR}."
+
+# job-skills shadows some of the names just linked above, so it MUST run after link_skills.
+# Calling it from here rather than leaving it to setup.sh is deliberate: this script is the
+# documented way to re-link skills, and running it alone must not leave the shadows reverted.
+# A reverted shadow is silent, and its consequence is a skill writing private notes into an
+# employer's repository. Exits 0 quietly on a machine with no access to the private repo.
+bash "${MANAGER_REPO}/scripts/install-job-skills.sh"

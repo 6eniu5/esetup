@@ -10,6 +10,3 @@
 [submodule "obsidian-lingo"]
 	path = obsidian-lingo
 	url = git@github.com:kernvex/obsidian-lingo.git
-[submodule "obsidian-job-doc"]
-	path = obsidian-job-doc
-	url = git@github.com:kernvex/obsidian-job-doc.git

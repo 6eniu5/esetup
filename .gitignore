@@ -1,0 +1,6 @@
+
+# Cloned conditionally by scripts/install-job-skills.sh, not a submodule:
+# it is private, and this repo is public, so a submodule would break --recursive
+# for everyone without access. See job-skills/docs/adr/0002.
+job-skills/
+obsidian-job-doc/
