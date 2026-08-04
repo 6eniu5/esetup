@@ -1080,6 +1080,10 @@ main() {
   # and apply non-stowed artifacts. Replaces the old rsync + git-init + per-package stow.
   setup_dotfiles
 
+  # Immediately after dotfiles: `apply` writes into ~/.config and depends on stow
+  # having already placed ~/.gitconfig with its `[include] local.inc` line.
+  setup_identity_routing || true
+
   run_fnm_default_node || record_failed "node" "fnm default-node setup failed"
   run_rustup_default_toolchain || record_failed "rust" "rustup toolchain setup failed"
 
@@ -1129,6 +1133,7 @@ main() {
 # explicitly — like the Declared Set, not discovered. main() calls them in order.
 MODULES_DIR="${SCRIPT_DIR}/modules"
 source "${MODULES_DIR}/dotfiles.sh"
+source "${MODULES_DIR}/identity.sh"
 source "${MODULES_DIR}/node.sh"
 source "${MODULES_DIR}/rust.sh"
 source "${MODULES_DIR}/karabiner.sh"

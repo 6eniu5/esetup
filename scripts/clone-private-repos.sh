@@ -16,9 +16,14 @@ set -euo pipefail
 MANAGER_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # name | url | what it is
+#
+# These names and URLs are visible in a PUBLIC repo, so a name must never reveal
+# a client. "identity" is deliberately generic: it says what the repo does and
+# nothing about whose identities it holds.
 PRIVATE_REPOS=(
   "obsidian-job-doc|git@github.com:kernvex/obsidian-job-doc.git|the job-doc generator and binary"
   "job-skills|git@github.com:kernvex/job-skills.git|Job-aware skills that shadow the upstream ones"
+  "identity|git@github.com:kernvex/identity.git|per-folder identity routing, generated from data"
 )
 
 clone_or_update() {

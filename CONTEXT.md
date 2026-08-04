@@ -33,15 +33,49 @@ Folding a config from a stray or older source (loose files, the `f412h4d/.dotfil
 `~/.config`) into the Dotfiles Repo, keeping the union of features so nothing is lost. Judged
 against the live config, which is authoritative for "what I run now."
 
-**Submodule Generator**:
-A standalone repo, vendored as a git submodule, that *generates* config into a
-target rather than shipping static files — `karabiner-manager` (`rules.ts` →
-`karabiner.json`), `obsidian-habit-tracker` (`habits.md` → the Habits vault), and
-`obsidian-lingo` (`lingo.yaml` → the Lingo vault scaffold). Wired in by an
-`optional_*` step (a Non-Artifact); the generated output is data the installer
-produces, not part of the Declared Set.
+**Generator**:
+A standalone repo that *generates* config into a target rather than shipping static files —
+`karabiner-manager` (`rules.ts` → `karabiner.json`), `obsidian-habit-tracker` (`habits.md` → the
+Habits vault), `obsidian-lingo` (`lingo.yaml` → the Lingo vault scaffold), and `identity`
+(`identities/*.conf` → the routing files). Wired in by an `optional_*` or `setup_*` step (a
+Non-Artifact); the generated output is data the installer produces, not part of the Declared Set.
+How the repo arrives — vendored as a submodule, or cloned conditionally because it is private —
+is a separate property and not part of being a Generator.
+_Avoid_: Submodule Generator (the earlier name; `identity` is a Generator and is deliberately
+not a submodule)
 
 
+
+### Identity
+
+**Identity**:
+One "who am I here" — a name, an email, an SSH key, and an account per Routed Tool. Owns a
+directory; every repo under it resolves to that Identity, and everything outside every such
+directory resolves to the personal one. The folder is the only switch, so an Identity is never
+selected by which shell, account or flag was used. Declared as one file in the private
+`identity` Generator; everything that routes it is generated. See [[docs/adr/0007]].
+_Avoid_: account (an Identity has several), profile (a Routed Tool's own term for something
+weaker)
+
+**Slug**:
+An Identity's short name, and the stem of every name derived from it — its config file, its
+`.inc`, and one config directory per Routed Tool. Full company name, not initials, so that a
+directory encountered in an environment dump identifies itself.
+
+**Routed Tool**:
+A CLI whose active account is selected per folder by an environment variable — `gh`, `gcloud`,
+`az`, `aws`. Unlike git it has no native folder awareness, which is the gap the shell hooks
+exist to close. Each is one row in the Tool Registry.
+
+**Tool Registry**:
+The table naming, for each Routed Tool, its environment assignments, a verify command and a
+login command. The reason adding a tool is a row rather than a rewrite: the hooks, the checker
+and the restore path all read it.
+
+**Vault**:
+An `ansible-vault`-encrypted SSH private key, tracked in the private `identity` repo. Protected
+by both repository access and a per-Identity passphrase. Restoring one needs that passphrase, so
+it is always Manual — never something a run converges.
 
 ### Code layout
 
