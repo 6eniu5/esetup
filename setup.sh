@@ -932,6 +932,7 @@ main() {
         echo "            2 = the run could not start (no brew/jq, brew update failed, bad flags)."
         echo "Aliases: --skip-installed-brew, --upgrade-installed-brew (pre-Plan names)."
         echo "Env: TARGET_DOTFILES (default: \$HOME/kernvex/dotfiles)"
+        echo "     ESETUP_DOTNET_FLAVOR=cask|formula  (unset = ask; 'cask' is the MAUI-capable one)"
         exit 0
         ;;
       *)
@@ -1098,6 +1099,13 @@ main() {
     setup_claude_skills || record_failed "claude-skills" "skills sync failed (git fetch/push)"
   fi
 
+  # No `|| record_failed` on these two, unlike their neighbours: they go through
+  # brew_install_cask / brew_install_formula, which record their own Failed entries and
+  # return 0 by design (one broken Artifact must not stop the rest). A wrapper here
+  # would be unreachable.
+  optional_gcloud
+  optional_dotnet
+
   optional_miniconda || record_failed "miniconda" "miniconda install failed"
   optional_sdkman || record_failed "sdkman" "sdkman install failed"
 
@@ -1140,6 +1148,8 @@ source "${MODULES_DIR}/karabiner.sh"
 source "${MODULES_DIR}/voiceink.sh"
 source "${MODULES_DIR}/miniconda.sh"
 source "${MODULES_DIR}/sdkman.sh"
+source "${MODULES_DIR}/gcloud.sh"
+source "${MODULES_DIR}/dotnet.sh"
 source "${MODULES_DIR}/obsidian.sh"
 source "${MODULES_DIR}/macos.sh"
 source "${MODULES_DIR}/claude.sh"
