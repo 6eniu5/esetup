@@ -1,7 +1,7 @@
 # Module: dotfiles — sourced by setup.sh, not executable on its own.
 # Depends on shared machinery in setup.sh: log_info/log_warn, record_manual, prompt_yes_no, ensure_* helpers, and the TARGET_DOTFILES / NONINTERACTIVE / SCRIPT_DIR globals.
 
-# git wrapper: use the 6eniu5 SSH identity if the vault decrypted it, else the default
+# git wrapper: use the kernvex SSH identity if the vault decrypted it, else the default
 # SSH/agent. NEVER set an empty GIT_SSH_COMMAND — that breaks the fetch/clone.
 _dotfiles_git() {
   if [[ -f "$ESETUP_SSH_IDENTITY" ]]; then
