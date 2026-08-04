@@ -1,6 +1,35 @@
 # esetup
 
-Interactive macOS bootstrap: Homebrew, CLI tools, fnm/bun, optional Miniconda and SDKMAN!, optional Karabiner Elements (via the `karabiner-manager` submodule), and the standalone self-installing dotfiles repo cloned to `~/6eniu5/dotfiles` by default (override with env `TARGET_DOTFILES`).
+Interactive macOS bootstrap: Homebrew, CLI tools, fnm/bun, optional Miniconda, SDKMAN!, Google Cloud SDK and the .NET SDK (which provides NuGet), optional Karabiner Elements (via the `karabiner-manager` submodule), and the standalone self-installing dotfiles repo cloned to `~/kernvex/dotfiles` by default (override with env `TARGET_DOTFILES`).
+
+Optional artifacts are opt-in: they are prompted for on an interactive run, and `--upgrade` will converge one that is already installed but never introduce one you declined.
+
+### .NET: which flavour, and MAUI
+
+Two packagings, chosen per machine with `ESETUP_DOTNET_FLAVOR` (unset asks):
+
+| | `cask` (`dotnet-sdk`) | `formula` (`dotnet`) |
+|---|---|---|
+| Source | Microsoft's official `.pkg` | Homebrew source build (dotnet/dotnet VMR) |
+| Installs to | `/usr/local/share/dotnet` (asks for sudo) | the brew prefix (no sudo) |
+| **MAUI** | **supported** | **not a supported configuration** |
+
+**A machine that builds MAUI wants `ESETUP_DOTNET_FLAVOR=cask`.** MAUI is supported on Microsoft's own SDK build; on a source-built SDK it is not. Note the formula gives you no upfront signal — `dotnet workload search maui` still lists all eight MAUI workloads there and their manifests still install, so trouble surfaces later in a build and looks like a broken project rather than a wrong SDK. That is why the flavour is a deliberate choice at install time.
+
+On the cask, setup then offers `dotnet workload install maui`, which needs a full Xcode (checked upfront) and sudo when the SDK root is root-owned.
+
+Both flavours symlink a `dotnet` into the brew prefix, so they collide. Setup refuses to install one over the other and reports it instead of letting Homebrew lose the race.
+
+### Toolchain shell environment
+
+`scripts/apply-toolchain-env.sh` writes the fish config that installed toolchains need — `DOTNET_ROOT`, and gcloud's `path.fish.inc` so `gcloud components install` binaries land on PATH. It runs as the last step of `setup.sh` and is standalone-runnable:
+
+```bash
+./esetup/scripts/apply-toolchain-env.sh --dry-run   # preview
+./esetup/scripts/apply-toolchain-env.sh             # apply
+```
+
+It detects toolchains by binary on disk rather than by Homebrew receipt, so it is correct however they arrived, and it generates the file wholesale: install a toolchain and re-run to add its config, remove one and re-run to retract it. Output goes to the fish stow package in the Dotfiles Repo (commit it) and is symlinked live; with no Dotfiles Repo present it writes `~/.config/fish/conf.d/` directly.
 
 ## Usage
 
@@ -86,6 +115,51 @@ inits the submodule, runs `bun install && bun run sync`, deploys the scaffold
 (`OBSIDIAN_LINGO_VAULT`), and copies the `.obsidian` config + spaced-repetition
 plugin from the dotfiles `obsidian/lingo` package. Your cards are content and sync
 via iCloud; the generator never touches them.
+
+## Scripts
+
+Standalone helpers under [`scripts/`](./scripts) (executable, run directly — not sourced like `modules/`):
+
+- [`migrate-to-fish.sh`](./scripts/migrate-to-fish.sh) — one-shot zsh → fish default-shell migration.
+- [`install-claude-skills.sh`](./scripts/install-claude-skills.sh) — link the Claude skills submodule into `~/.claude/skills` (see [docs/claude-skills](./docs/claude-skills)).
+- [`update-github-remotes.sh`](./scripts/update-github-remotes.sh) — repoint git remotes after a GitHub handle rename (see below).
+- [`update-github-handle-refs.sh`](./scripts/update-github-handle-refs.sh) — rewrite GitHub handle references (URLs + repo slugs) inside file contents after a rename, preserving filesystem paths (see below).
+
+### update-github-remotes.sh
+
+After renaming your GitHub account, existing clones keep pointing at the old handle. GitHub redirects them for a while, then **stops without warning** and pushes start failing. This sweeps every git repo under `~` and repoints only the remotes that still reference the old handle — repos with multiple remotes keep their other remotes untouched. It matches both SSH (`git@github.com:old/…`) and HTTPS (`https://github.com/old/…`) URLs.
+
+```bash
+scripts/update-github-remotes.sh            # dry run: preview what would change
+scripts/update-github-remotes.sh --apply    # rewrite the matching remotes
+scripts/update-github-remotes.sh --verify   # git ls-remote each new remote to confirm access
+```
+
+The handles default to this repo's own migration (`6eniu5` → `kernvex`); override for a future rename:
+
+```bash
+OLD_HANDLE=oldname NEW_HANDLE=newname scripts/update-github-remotes.sh --apply
+```
+
+Every run writes a timestamped report to `~/.github-remote-updates/`. Dry run and `--verify` never change anything; rewriting is idempotent and safe to re-run. `--verify` uses `BatchMode`/`GIT_TERMINAL_PROMPT=0`, so an unreachable remote is logged as `FAIL` instead of hanging on a credential prompt. Other flags: `--help`; env `ROOT` and `MAXDEPTH` tune the search (default `~`, 5 levels deep).
+
+> Note: submodule remotes (`karabiner-manager`, `obsidian-*`, dotfiles' `nvim`) are stored as `.git` **files**, not directories, so this script skips them. Update those with `git config -f .gitmodules` + `git submodule sync`, or in the submodule's own checkout.
+
+### update-github-handle-refs.sh
+
+`update-github-remotes.sh` fixes git *remotes*; this fixes the handle written into **file contents** — clone commands in docs, submodule URLs in `.gitmodules`, and default URLs in setup scripts.
+
+It rewrites the handle in two forms: inside a **GitHub URL** (`github.com/OLD`, `github.com:OLD`) and as a bare **repo slug** (`OLD/repo`, e.g. `` `OLD/dotfiles` ``, `gh repo view OLD/x`). It never touches the handle when it is a **filesystem path**: any `OLD/` preceded by `/` or `~` (`~/kernvex/dotfiles`, `$HOME/kernvex/…`) is left alone, because the personal folder was itself named after the handle — only renaming the directory can safely change those (that rename has since happened: `~/6eniu5` → `~/kernvex`). It also ignores non-slug bare uses (git identity, the ssh key filename `OLD_id_ed25519`, the Bonjour hostname, the `gh` account) — each a separate, deliberate change. Use `--scan` to audit everything it leaves.
+
+```bash
+scripts/update-github-handle-refs.sh            # dry run: show refs (old -> new)
+scripts/update-github-handle-refs.sh --apply    # rewrite them (backs up every file first)
+scripts/update-github-handle-refs.sh --scan     # audit ALL bare OLD occurrences it won't touch
+```
+
+Backups for each `--apply` go to `~/.github-remote-updates/backups-<timestamp>/` (mirroring the original paths), plus a timestamped report. Skips history/app-state/build noise (`.git`, `.claude`, `.cursor`, `node_modules`, `target/dist/build`, shell histories, transcripts). Handles/root are env-overridable (`OLD_HANDLE`, `NEW_HANDLE`, `ROOT`). Needs ripgrep with PCRE2 (`rg -P`) for the path-vs-slug lookarounds.
+
+> Caveat: because the local directory shares the handle's name, a bare `OLD/dotfiles` that actually means the *local path* (not the GitHub repo) is indistinguishable from a repo slug by regex — review those after `--apply`. Also run `git submodule sync` in any repo whose `.gitmodules` changed so the new URL reaches each submodule's `.git/config`.
 
 ## Requirements
 
