@@ -7,7 +7,7 @@ status: accepted
 The **Habits** Obsidian vault is built by a generator (`habits.md` → daily
 template, Bases file, dashboards, heatmaps) that will change over time and wants
 its own git history. Rather than fold that code into esetup or the dotfiles repo,
-it lives in its own repo, **`6eniu5/obsidian-habit-tracker`**, added here as a
+it lives in its own repo, **`kernvex/obsidian-habit-tracker`**, added here as a
 git **submodule** — the same shape as `karabiner-manager` (a generator that emits
 config to a target).
 

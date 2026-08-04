@@ -5,7 +5,7 @@ status: accepted
 # Dotfiles extracted to a standalone, self-installing repo
 
 esetup was doing two jobs at once: it was the **bootstrap installer** *and* the **dotfiles
-source** (`esetup/dotfiles/`), joined by a one-way `rsync` into `~/6eniu5/dotfiles` — a throwaway
+source** (`esetup/dotfiles/`), joined by a one-way `rsync` into `~/kernvex/dotfiles` — a throwaway
 `git init`'d only to host the `nvim` and `tmux-sessionizer` submodules — which was then stowed into
 `$HOME`. That indirection produced every dotfiles problem we hit this session: edits made in the
 deploy target never flowed back to source (drift — the WezTerm Copy Mode change had to be
@@ -15,17 +15,17 @@ into it.
 
 ## Decision
 
-Dotfiles become their own repo, **`6eniu5/dotfiles`**, and esetup becomes purely the installer.
+Dotfiles become their own repo, **`kernvex/dotfiles`**, and esetup becomes purely the installer.
 
-- **Reclaim the name.** The old Linux dotfiles were renamed `6eniu5/dotfiles` → `6eniu5/dotfiles-example`
-  (history preserved, GitHub redirects), freeing `6eniu5/dotfiles` for the current macOS setup.
+- **Reclaim the name.** The old Linux dotfiles were renamed `kernvex/dotfiles` → `kernvex/dotfiles-example`
+  (history preserved, GitHub redirects), freeing `kernvex/dotfiles` for the current macOS setup.
 - **Self-installing.** The repo carries its own `install` script (`stow --no-folding` per package),
   so `git clone … && ./install` works on any machine *without esetup*.
 - **All personal config, one home.** Stow packages (`fish`, `starship`, `wezterm`, `tmux`,
   `tmux-sessionizer-config`, `bin`, plus `atuin`, `git`, `htop`) **plus** non-stowed artifact areas
   (`keyboard/`, `raycast/`) the installer applies, **plus** the `nvim` (kickstart.nvim) and
   `tmux-sessionizer` submodules.
-- **esetup orchestrates.** It clones/pulls `6eniu5/dotfiles`, runs the repo's `install`, and applies
+- **esetup orchestrates.** It clones/pulls `kernvex/dotfiles`, runs the repo's `install`, and applies
   the non-stowed artifacts. `sync_dotfiles_to_home` (rsync), `init_dotfiles_git`, and
   `sync-dotfiles.sh` are removed.
 
@@ -43,10 +43,10 @@ Dotfiles become their own repo, **`6eniu5/dotfiles`**, and esetup becomes purely
   out; there is one place a config lives.
 - **Portable.** A fresh machine clones the repo and runs `./install`; esetup is only needed for the
   wider bootstrap (Homebrew, runtimes, secrets).
-- **`$HOME` symlinks point into `~/6eniu5/dotfiles`, now a real clone** with a remote and history —
+- **`$HOME` symlinks point into `~/kernvex/dotfiles`, now a real clone** with a remote and history —
   not a throwaway.
 - **Landmine to defuse:** `~/.dotfiles`… no — the local clone `setup/.dotfiles` was deleted, but any
-  clone whose `origin` is `git@github.com:6eniu5/dotfiles.git` now re-points at the NEW repo once it
+  clone whose `origin` is `git@github.com:kernvex/dotfiles.git` now re-points at the NEW repo once it
   exists (GitHub drops the rename-redirect). Such clones must be re-pointed to `dotfiles-example.git`.
 - **Salvage merged in** (verified against the live config, no feature lost): eza listing aliases
   (`la/ll/lla/lll/llll`), the Vazir (Persian) + Cascadia Code Light WezTerm font fallback, and newly

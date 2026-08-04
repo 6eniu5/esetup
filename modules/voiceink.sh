@@ -46,7 +46,7 @@ optional_voiceink() {
   brew_install_formula cmake "cmake"
 
   # A stable clone is the update path a Source Build otherwise lacks. Public repo, so
-  # HTTPS — not the 6eniu5 SSH key the dotfiles repo is pinned to.
+  # HTTPS — not the kernvex SSH key the dotfiles repo is pinned to.
   mkdir -p "$(dirname "$build_dir")"
   if [[ -d "${build_dir}/.git" ]]; then
     log_info "Updating VoiceInk source at ${build_dir} (git pull --ff-only)."

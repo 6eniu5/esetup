@@ -23,7 +23,7 @@ every upstream pull. Symlinking auto-discovers our bucket and never touches upst
 
 ## Where things live
 
-- **Fork:** `github.com/6eniu5/skills` (origin) — forked from `mattpocock/skills` (upstream).
+- **Fork:** `github.com/kernvex/skills` (origin) — forked from `mattpocock/skills` (upstream).
 - **Submodule:** `skills/` at the root of this esetup repo (sibling to `karabiner-manager`),
   SSH URL, no branch pin — matching the existing submodule convention.
 - **Personal bucket:** `skills/skills/6eniu5/` inside the fork (the only path we add upstream).

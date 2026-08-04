@@ -14,7 +14,7 @@ Dotfiles Repo and runs its installer. esetup no longer holds config files itself
 _Avoid_: dotfiles manager
 
 **Dotfiles Repo**:
-The standalone `6eniu5/dotfiles` repo, cloned to `~/6eniu5/dotfiles`. The single home for
+The standalone `kernvex/dotfiles` repo, cloned to `~/kernvex/dotfiles`. The single home for
 everything the machine *is*: Stow Packages, Artifact Areas, and the `nvim`/`tmux-sessionizer`
 submodules. Self-installing (`./install`), so it deploys without esetup.
 _Avoid_: target dotfiles, deploy target (the old orphan throwaway this replaces)

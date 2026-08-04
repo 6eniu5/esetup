@@ -24,19 +24,19 @@ Before installing casks, the script checks for common issues:
 - **Both stacks installed** — warns if Docker.app and OrbStack are present.
 - **Rancher Desktop / Colima** — warns about overlapping container tooling.
 - **`docker info` fails** — warns if the CLI exists but the daemon/context is broken.
-- **`~/6eniu5/dotfiles`** (or `TARGET_DOTFILES`) — warns if the path exists but is not the dotfiles git clone (setup leaves it alone).
+- **`~/kernvex/dotfiles`** (or `TARGET_DOTFILES`) — warns if the path exists but is not the dotfiles git clone (setup leaves it alone).
 - **Two Homebrew installs** — warns if both `/opt/homebrew` and `/usr/local` have `brew`.
 
-Dotfiles are a **standalone repo** ([`6eniu5/dotfiles`](https://github.com/6eniu5/dotfiles)); esetup clones it to `~/6eniu5/dotfiles` (default; override with `TARGET_DOTFILES`), runs its self-installer (`./install`, `stow --no-folding`), and applies the non-stowed artifact areas (`raycast/`, `keyboard/`). See [docs/adr/0004](./docs/adr/0004-dotfiles-extracted-to-standalone-self-installing-repo.md).
+Dotfiles are a **standalone repo** ([`kernvex/dotfiles`](https://github.com/kernvex/dotfiles)); esetup clones it to `~/kernvex/dotfiles` (default; override with `TARGET_DOTFILES`), runs its self-installer (`./install`, `stow --no-folding`), and applies the non-stowed artifact areas (`raycast/`, `keyboard/`). See [docs/adr/0004](./docs/adr/0004-dotfiles-extracted-to-standalone-self-installing-repo.md).
 
 ## Karabiner Elements and Raycast
 
-The repo includes a **git submodule** at [`karabiner-manager`](./karabiner-manager) ([`6eniu5/karabiner-manager`](https://github.com/6eniu5/karabiner-manager)): TypeScript (`rules.ts`) generates `karabiner.json` and writes it to `~/.config/karabiner/karabiner.json` (override with env `KARABINER_CONFIG_PATH` when running `yarn build`).
+The repo includes a **git submodule** at [`karabiner-manager`](./karabiner-manager) ([`kernvex/karabiner-manager`](https://github.com/kernvex/karabiner-manager)): TypeScript (`rules.ts`) generates `karabiner.json` and writes it to `~/.config/karabiner/karabiner.json` (override with env `KARABINER_CONFIG_PATH` when running `yarn build`).
 
 **Clone with submodules** (or initialize later):
 
 ```bash
-git clone --recurse-submodules https://github.com/6eniu5/esetup.git
+git clone --recurse-submodules https://github.com/kernvex/esetup.git
 # or, from an existing clone:
 git submodule update --init --recursive
 ```
@@ -44,7 +44,7 @@ git submodule update --init --recursive
 **Verify the submodule remote** (requires [GitHub CLI](https://cli.github.com/)):
 
 ```bash
-gh repo view 6eniu5/karabiner-manager
+gh repo view kernvex/karabiner-manager
 git submodule status
 ```
 
@@ -61,7 +61,7 @@ launchctl kickstart -k "gui/$(id -u)/org.pqrs.karabiner.karabiner_console_user_s
 
 ## Obsidian Habits
 
-The repo includes a **git submodule** at [`obsidian-habit-tracker`](./obsidian-habit-tracker) ([`6eniu5/obsidian-habit-tracker`](https://github.com/6eniu5/obsidian-habit-tracker)): a generator that turns `habits.md` into a full Obsidian **Habits** vault (daily-note template, Bases views, heatmaps, streak dashboard). Same pattern as `karabiner-manager`. See [docs/adr/0005](./docs/adr/0005-obsidian-habit-tracker-submodule.md).
+The repo includes a **git submodule** at [`obsidian-habit-tracker`](./obsidian-habit-tracker) ([`kernvex/obsidian-habit-tracker`](https://github.com/kernvex/obsidian-habit-tracker)): a generator that turns `habits.md` into a full Obsidian **Habits** vault (daily-note template, Bases views, heatmaps, streak dashboard). Same pattern as `karabiner-manager`. See [docs/adr/0005](./docs/adr/0005-obsidian-habit-tracker-submodule.md).
 
 During `./esetup/setup.sh`, after the Karabiner step, you can opt in to
 `optional_obsidian_habit_tracker`: it initializes the submodule, installs the
@@ -78,7 +78,7 @@ cd obsidian-habit-tracker && bun run add-habit   # or: edit habits.md && bun run
 
 ## Obsidian Lingo
 
-A second generator submodule at [`obsidian-lingo`](./obsidian-lingo) ([`6eniu5/obsidian-lingo`](https://github.com/6eniu5/obsidian-lingo)): a config-driven generator for the **Lingo** language-learning vault — language-agnostic Concepts + per-language flashcards reviewed with obsidian-spaced-repetition (FSRS). Same submodule pattern as `obsidian-habit-tracker`; adding a language is one command (`bun run add-language Spanish`). See [docs/adr/0006](./docs/adr/0006-obsidian-lingo-submodule.md).
+A second generator submodule at [`obsidian-lingo`](./obsidian-lingo) ([`kernvex/obsidian-lingo`](https://github.com/kernvex/obsidian-lingo)): a config-driven generator for the **Lingo** language-learning vault — language-agnostic Concepts + per-language flashcards reviewed with obsidian-spaced-repetition (FSRS). Same submodule pattern as `obsidian-habit-tracker`; adding a language is one command (`bun run add-language Spanish`). See [docs/adr/0006](./docs/adr/0006-obsidian-lingo-submodule.md).
 
 During `./esetup/setup.sh`, `optional_obsidian_lingo` (after the Habits step)
 inits the submodule, runs `bun install && bun run sync`, deploys the scaffold
@@ -94,8 +94,8 @@ via iCloud; the generator never touches them.
 
 ## Dotfiles
 
-Dotfiles live in their own self-installing repo, [`6eniu5/dotfiles`](https://github.com/6eniu5/dotfiles),
-cloned to `~/6eniu5/dotfiles`. Stow packages (`fish`, `starship`, `wezterm`, `tmux`,
+Dotfiles live in their own self-installing repo, [`kernvex/dotfiles`](https://github.com/kernvex/dotfiles),
+cloned to `~/kernvex/dotfiles`. Stow packages (`fish`, `starship`, `wezterm`, `tmux`,
 `tmux-sessionizer-config`, `bin`, `atuin`, `git`, `htop`, `nvim`) plus the `nvim`/`tmux-sessionizer`
 submodules and the `keyboard/`/`raycast/` artifact areas. esetup just clones and runs its `./install`;
 the repo also deploys standalone (`git clone … && ./install`). See [docs/adr/0004](./docs/adr/0004-dotfiles-extracted-to-standalone-self-installing-repo.md).
@@ -117,4 +117,4 @@ In Neovim, Mason auto-installs `gopls` and `goimports` on first `.go` file; form
 
 - The CLI is the Homebrew formula **`tree-sitter-cli`**, not `tree-sitter` (that one is library-only, no binary). nvim-treesitter's `main` branch needs it to compile parsers, else builds fail with `ENOENT: 'tree-sitter'`.
 - nvim-treesitter is pinned to `branch = 'main'`. Use its API (`require('nvim-treesitter').install(parsers)`), **never** `require('nvim-treesitter.configs').setup{}` — that module exists only on the old `master` branch and errors on `main` (`attempt to call field 'install' (a nil value)` shows the reverse: a stale `master` checkout under a `main` spec). Fix a stale checkout: `cd ~/.local/share/nvim/lazy/nvim-treesitter && git fetch origin main && git checkout main && git reset --hard origin/main`.
-- The nvim config is a submodule of `6eniu5/kickstart.nvim` (default branch `master`); push there for new machines. It is now a submodule of the standalone [`6eniu5/dotfiles`](https://github.com/6eniu5/dotfiles) repo — commit dotfiles changes there and push (it has a remote), unlike the old local-only stow target.
+- The nvim config is a submodule of `kernvex/kickstart.nvim` (default branch `master`); push there for new machines. It is now a submodule of the standalone [`kernvex/dotfiles`](https://github.com/kernvex/dotfiles) repo — commit dotfiles changes there and push (it has a remote), unlike the old local-only stow target.

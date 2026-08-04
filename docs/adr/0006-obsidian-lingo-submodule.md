@@ -6,7 +6,7 @@ status: accepted
 
 The Lingo language-learning vault follows the same submodule-generator pattern as
 Habits ([ADR-0005](./0005-obsidian-habit-tracker-submodule.md)):
-`6eniu5/obsidian-lingo` is a git submodule with an `optional_obsidian_lingo()`
+`kernvex/obsidian-lingo` is a git submodule with an `optional_obsidian_lingo()`
 step that scaffolds the vault (templates + `.obsidian` config) into the Obsidian
 iCloud container (`OBSIDIAN_LINGO_VAULT`, default `…/Documents/Lingo`).
 
