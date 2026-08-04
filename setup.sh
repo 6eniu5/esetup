@@ -205,6 +205,22 @@ link_homebrew_completions_for_fish() {
   fi
 }
 
+# Thin wrapper. The work lives in scripts/apply-toolchain-env.sh so the same logic can be
+# run on its own after installing or removing a toolchain by hand; duplicating it here as
+# a function would mean two copies to keep honest. A broken shell env is worth reporting,
+# never worth aborting a run over.
+apply_toolchain_env() {
+  local script="${SCRIPT_DIR}/scripts/apply-toolchain-env.sh"
+  if [[ ! -x "$script" ]]; then
+    log_warn "Missing or non-executable ${script}; skipping toolchain shell env."
+    record_manual "toolchain-env" "scripts/apply-toolchain-env.sh missing or not executable"
+    return 0
+  fi
+  TARGET_DOTFILES="$TARGET_DOTFILES" "$script" \
+    || record_failed "toolchain-env" "apply-toolchain-env.sh failed"
+  return 0
+}
+
 apply_known_caveat_actions() {
   local fish_cfg="${TARGET_DOTFILES}/fish/.config/fish/config.fish"
   local need_fish_paths=0
@@ -1110,6 +1126,12 @@ main() {
   optional_sdkman || record_failed "sdkman" "sdkman install failed"
 
   link_homebrew_completions_for_fish
+
+  # Non-Artifact, idempotent, and last on purpose: it reads what the run actually left on
+  # disk (DOTNET_ROOT depends on which dotnet flavour got installed) rather than what was
+  # requested, so it must come after every install step. Standalone-runnable by design --
+  # re-run it after installing or removing a toolchain by hand. --upgrade runs it too.
+  apply_toolchain_env
 
   print_caveat_summary
   # Non-Artifact, idempotent (ensure_line_in_file): --upgrade applies it.
