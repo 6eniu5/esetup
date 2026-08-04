@@ -3,12 +3,20 @@
 
 # VoiceInk: a Source Build (see CONTEXT.md). The brew cask `voiceink` is the paid,
 # license-gated pre-built binary (7-day trial, then $25+). The GPL-3.0 source builds
-# for free with `make local` (ad-hoc signing, no Apple Developer cert). This is a
-# Non-Artifact — no brew receipt, no Plan, no version diff — updated by re-running the
-# build (git pull), never `brew upgrade`. Needs FULL Xcode (not just the Command Line
+# for free with `make local` (ad-hoc signing, no Apple Developer cert). The "free" is
+# NOT inherent to the source: `make local` compiles with SWIFT_ACTIVE_COMPILATION_CONDITIONS
+# 'LOCAL_BUILD', which forces licenseState = .licensed (LicenseViewModel.swift). The same
+# source compiled WITHOUT that flag (the official release / cask) runs the 7-day trial and
+# nags "Your trial has ended...". So the failure mode is silent: if a Developer-ID-signed,
+# notarized official binary lands in /Applications instead of this ad-hoc build, VoiceInk
+# nags about the trial even though a Source Build was "intended". Diagnose with
+# `codesign -dv /Applications/VoiceInk.app`: `Signature=adhoc` (no authority) = this free
+# build; `Authority=Developer ID ...` + stapled notarization ticket = the trial binary.
+# This is a Non-Artifact — no brew receipt, no Plan, no version diff — updated by re-running
+# the build (git pull), never `brew upgrade`. Needs FULL Xcode (not just the Command Line
 # Tools) plus cmake, which whisper.cpp's XCFramework build shells out to.
 optional_voiceink() {
-  local build_dir="${HOME}/6eniu5/build/VoiceInk"
+  local build_dir="${HOME}/kernvex/build/VoiceInk"
   local app_src="${HOME}/Downloads/VoiceInk.app"
   local app_dst="/Applications/VoiceInk.app"
 

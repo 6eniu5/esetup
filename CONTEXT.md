@@ -110,9 +110,16 @@ Under `--upgrade` the idempotent ones run and the destructive ones are suppresse
 A Non-Artifact that clones an upstream GPL repo, compiles it locally, and installs the
 resulting app — chosen where the brew cask is paid or license-gated. VoiceInk is the first:
 its cask is a paywalled pre-built binary, but the GPL-3.0 source builds free (`make local`,
-ad-hoc signed). Carries an upstream version but no Plan; updated by re-running the build
-(`git pull`), never `brew upgrade`. Heavy and destructive, so like the Karabiner build it is
-suppressed into Manual under `--upgrade`.
+ad-hoc signed). "Free" is not inherent to the source — the *same* source is trial-gated
+unless compiled with the `LOCAL_BUILD` flag, which `make local` sets and which hardcodes
+`licenseState = .licensed` (`LicenseViewModel.swift`). Compiled without it (the official
+release), that source runs a 7-day trial. So the trap is a signature mismatch: the free
+Source Build is **ad-hoc signed** (`codesign` shows `Signature=adhoc`, no authority);
+the paid/trial binary is **Developer ID signed + notarized** (Authority: Prakash Joshi,
+stapled ticket). If `/Applications/VoiceInk.app` shows a Developer ID, you're running the
+trial binary, not your build, regardless of what setup intended. Carries an upstream version
+but no Plan; updated by re-running the build (`git pull`), never `brew upgrade`. Heavy and
+destructive, so like the Karabiner build it is suppressed into Manual under `--upgrade`.
 _Avoid_: Artifact (no brew receipt, no Version Diff)
 
 ### Ownership
