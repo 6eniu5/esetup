@@ -40,6 +40,20 @@ setup_identity_routing() {
     return 0
   fi
 
+  # Put it on PATH. ADDING_AN_IDENTITY.md documents the generated path as bare
+  # `identity add …` / `identity check --deep`, and a reader who types that gets
+  # "command not found" without this. The link is machine-local rather than a
+  # dotfiles stow entry because its target is a private repo that only exists on
+  # machines which can reach it — a public package shipping this would dangle.
+  # ~/.local/bin is stow's own target for the `bin` package, so it is already on
+  # PATH wherever the dotfiles are installed.
+  local link="${HOME}/.local/bin/identity"
+  mkdir -p "${HOME}/.local/bin"
+  if [[ "$(readlink "$link" 2>/dev/null)" != "$bin" ]]; then
+    ln -sfn "$bin" "$link"
+    log_info "Identity routing: linked ${link} -> ${bin}"
+  fi
+
   log_info "Identity routing: generating per-folder git/gh/cloud config"
   if ! "$bin" apply; then
     record_failed "identity" "identity apply failed"
