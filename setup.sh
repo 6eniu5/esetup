@@ -1010,6 +1010,11 @@ main() {
 
   local formulas=(
     eza zoxide starship ripgrep bat fd gnu-sed atuin lazygit gh jq stow tmux fzf fnm neovim go tree-sitter-cli flamegraph
+    # Keg-only, and pinned to 5.4 on purpose: it exists to run the dotfiles'
+    # window-slot resolver tests on the same Lua that Hammerspoon ships. Plain
+    # `lua` is 5.5 and `luajit` is 5.1-compatible, so either would test a
+    # different language from the one the code actually runs on.
+    lua@5.4
   )
   for f in "${formulas[@]}"; do
     brew_install_formula "$f" "$f"

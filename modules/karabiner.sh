@@ -36,6 +36,12 @@ optional_karabiner_manager() {
   brew_install_cask karabiner-elements "Karabiner Elements"
   brew_install_cask raycast "Raycast"
   brew_install_cask rectangle "Rectangle"
+  # Hammerspoon resolves the window slots that Karabiner's Hyper+<digit> rules
+  # call into (dotfiles ADR 0008). It belongs behind this prompt rather than on
+  # its own: without Karabiner the slots have no keys to arrive on.
+  brew_install_cask hammerspoon "Hammerspoon"
+  record_manual "hammerspoon-accessibility" \
+    "grant Hammerspoon Accessibility in System Settings > Privacy & Security; macOS offers no scripted path"
 
   mkdir -p "${HOME}/.config/karabiner"
   local kb_path="${HOME}/.config/karabiner/karabiner.json"
@@ -66,9 +72,21 @@ optional_karabiner_manager() {
     return 1
   fi
 
-  if launchctl kickstart -k "gui/$(id -u)/org.pqrs.karabiner.karabiner_console_user_server" &>/dev/null; then
-    log_info "Reloaded Karabiner Elements user config server."
-  else
-    log_warn "Could not kickstart Karabiner daemon. Open Karabiner Elements once, or run: launchctl kickstart -k gui/\$(id -u)/org.pqrs.karabiner.karabiner_console_user_server"
+  # Karabiner renamed this agent: current builds register it under
+  # org.pqrs.service.agent.*, older ones under org.pqrs.karabiner.*. The old name
+  # alone failed silently into the warning below on every run, so try both and only
+  # complain when neither exists.
+  kb_reloaded=0
+  for kb_service in \
+    "org.pqrs.service.agent.karabiner_console_user_server" \
+    "org.pqrs.karabiner.karabiner_console_user_server"; do
+    if launchctl kickstart -k "gui/$(id -u)/${kb_service}" &>/dev/null; then
+      log_info "Reloaded Karabiner Elements user config server (${kb_service})."
+      kb_reloaded=1
+      break
+    fi
+  done
+  if [[ "$kb_reloaded" -eq 0 ]]; then
+    log_warn "Could not kickstart the Karabiner daemon under either service name. Open Karabiner Elements once; it also reloads karabiner.json on change by itself."
   fi
 }
