@@ -51,9 +51,13 @@ No ownership-predicate changes needed, verified against the live install:
 ## Shell handle
 
 `scripts/apply-toolchain-env.sh` gains one detection alongside
-`detect_dotnet_root`: glob `$(brew --prefix)/opt/dotnet@*/bin/dotnet`. For each
-hit, the generated `esetup-toolchains.fish` (Dotfiles Repo fish Stow Package,
-symlinked live) gains:
+`detect_dotnet_root`: glob `$(brew --prefix)/opt/dotnet@*/bin/dotnet`, keeping
+only links that resolve into a Cellar directory bearing their own name. The
+filter exists because brew leaves opt symlinks for *aliases* too — with the
+primary formula on 10, `opt/dotnet@10` (and a stale `opt/dotnet@9`) resolve to
+`Cellar/dotnet`, and a `dotnet9` function running SDK 10 would be a lie. For
+each real keg, the generated `esetup-toolchains.fish` (Dotfiles Repo fish Stow
+Package, symlinked live) gains:
 
 ```fish
 # Versioned .NET SDK kegs. Keg-only, deliberately not on PATH — the brew

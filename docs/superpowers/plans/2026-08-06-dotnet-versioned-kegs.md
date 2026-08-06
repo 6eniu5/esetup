@@ -305,16 +305,25 @@ Insert after `detect_dotnet_root()`:
 # Versioned kegs (dotnet@8, …), by binary on disk like everything else here.
 # The opt path is printed rather than the Cellar one: it survives version bumps.
 detect_dotnet_kegs() {
-  local keg
+  local keg name
   for keg in "$(brew_prefix)/opt/"dotnet@*; do
     [[ -x "${keg}/bin/dotnet" ]] || continue
+    # brew leaves opt symlinks for *aliases* too: with the primary formula on 10,
+    # opt/dotnet@10 (and a stale opt/dotnet@9) resolve to Cellar/dotnet. A
+    # `dotnet9` function running SDK 10 would be a lie, so only a link that
+    # resolves into a Cellar directory bearing its own name is a real keg.
+    name="$(basename "$keg")"
+    case "$(readlink "$keg" || true)" in
+      *"Cellar/${name}/"*) ;;
+      *) continue ;;
+    esac
     printf '%s\n' "$keg"
   done
   return 0
 }
 ```
 
-(An unmatched glob leaves the literal pattern, which fails the `-x` test — no `nullglob` needed.)
+(An unmatched glob leaves the literal pattern, which fails the `-x` test — no `nullglob` needed. The alias filter was added during execution: the dry-run on the reference machine surfaced `opt/dotnet@10` and a stale `opt/dotnet@9`, both alias links to `Cellar/dotnet`.)
 
 - [ ] **Step 3: Extend `build_content()`**
 
