@@ -28,6 +28,82 @@
 # needs MAUI wants cask.
 ESETUP_DOTNET_FLAVOR="${ESETUP_DOTNET_FLAVOR:-}"
 
+# Versioned kegs (dotnet@8, dotnet@9, …) ride alongside whichever flavour was
+# chosen. They exist because work repos pin majors older than the primary SDK:
+# any newer SDK *builds* net8.0, but *running* on the pinned major needs its
+# runtime, and DOTNET_ROLL_FORWARD=LatestMajor means testing on a runtime
+# production never uses. Keg-only, so nothing links into $(brew --prefix)/bin
+# and neither flavour is disturbed — which also means PATH never reaches them;
+# apply-toolchain-env.sh generates a `dotnetN` fish function per detected keg.
+#
+# Declare with ESETUP_DOTNET_VERSIONS (space-separated majors, e.g. "8");
+# unset asks interactively. Owned kegs converge on every run; --upgrade never
+# introduces one.
+ESETUP_DOTNET_VERSIONS="${ESETUP_DOTNET_VERSIONS:-}"
+
+# A typo'd major or a disabled keg (dotnet@6 is EOL upstream) is user error to
+# name, not an install to attempt — attempting would land it in Failed, and
+# Failed means something broke. Prints the Reason and returns 0 when the keg
+# cannot be installed; returns 1 when it can.
+dotnet_keg_unavailable_reason() {
+  local keg="$1" json
+  if ! json="$(brew info --json=v2 --formula "$keg" 2>/dev/null)"; then
+    printf 'no such formula — check the major in ESETUP_DOTNET_VERSIONS'
+    return 0
+  fi
+  if command -v jq &>/dev/null \
+    && [[ "$(printf '%s\n' "$json" | jq -r '.formulae[0].disabled // false')" == "true" ]]; then
+    printf 'disabled in Homebrew (EOL upstream); cannot install'
+    return 0
+  fi
+  return 1
+}
+
+# Orthogonal to the flavour choice on purpose: kegs never touch the shared
+# $(brew --prefix)/bin/dotnet symlink, so they converge even on a machine stuck
+# in the both-flavours collision above.
+optional_dotnet_versioned() {
+  local keg v wanted missing reason
+
+  # Converge what is owned, --upgrade included. brew_install_formula supplies
+  # Plan lookup, upgrade, pinned->Manual, and the shadow check.
+  while IFS= read -r keg; do
+    [[ "$keg" == dotnet@* ]] || continue
+    brew_install_formula "$keg" ".NET SDK ${keg#dotnet@} (versioned keg)"
+  done <<<"$OWNED_FORMULAE"
+
+  # Optional means --upgrade must never introduce it on a machine that
+  # declined it — with or without ESETUP_DOTNET_VERSIONS set.
+  [[ "$NONINTERACTIVE" -eq 1 ]] && return 0
+
+  wanted="$ESETUP_DOTNET_VERSIONS"
+  if [[ -z "$wanted" ]]; then
+    read -r -p "Versioned .NET SDK kegs to add (space-separated majors, e.g. '8'; empty to skip): " wanted || true
+  fi
+
+  missing=""
+  for v in $wanted; do
+    brew_owns_formula "dotnet@${v}" && continue
+    missing="${missing} dotnet@${v}"
+  done
+  missing="${missing# }"
+  [[ -n "$missing" ]] || return 0
+
+  if ! prompt_yes_no "Install versioned .NET SDK keg(s): ${missing}?" y; then
+    log_info "Skipped. Set ESETUP_DOTNET_VERSIONS or answer the prompt on a later run."
+    return 0
+  fi
+
+  for keg in $missing; do
+    if reason="$(dotnet_keg_unavailable_reason "$keg")"; then
+      record_manual "$keg" "$reason"
+      continue
+    fi
+    brew_install_formula "$keg" ".NET SDK ${keg#dotnet@} (versioned keg)"
+  done
+  return 0
+}
+
 # Both flavours symlink a `dotnet` into $(brew --prefix)/bin, so installing the second
 # over the first is a collision, not a coexistence. Detect rather than let brew lose.
 dotnet_both_flavours_owned() {
