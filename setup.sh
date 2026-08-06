@@ -1120,12 +1120,13 @@ main() {
     setup_claude_skills || record_failed "claude-skills" "skills sync failed (git fetch/push)"
   fi
 
-  # No `|| record_failed` on these two, unlike their neighbours: they go through
+  # No `|| record_failed` on these three, unlike their neighbours: they go through
   # brew_install_cask / brew_install_formula, which record their own Failed entries and
   # return 0 by design (one broken Artifact must not stop the rest). A wrapper here
   # would be unreachable.
   optional_gcloud
   optional_dotnet
+  optional_dotnet_versioned
 
   optional_miniconda || record_failed "miniconda" "miniconda install failed"
   optional_sdkman || record_failed "sdkman" "sdkman install failed"
