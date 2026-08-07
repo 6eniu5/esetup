@@ -1079,6 +1079,8 @@ main() {
     disable_spotlight_hotkey
   fi
 
+  speed_up_window_animations
+
   # Guarded: a curl blip in the native Claude installer must not abort the whole run
   # (the brew path is failure-isolated; this makes the non-brew installers match).
   install_claude || record_failed "claude-code" "install_claude failed (native installer / cask)"

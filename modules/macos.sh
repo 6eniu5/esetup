@@ -9,6 +9,26 @@ disable_spotlight_hotkey() {
   log_info "Spotlight hotkey disabled. Log out and back in (or reboot) for the change to take effect."
 }
 
+# Solo (Option+digit) hides and minimizes windows around a translucent terminal,
+# and animations in that flow read as lag. Hide/unhide has no animation to
+# disable. Minimize/unminimize cannot be disabled at all — "scale" is simply the
+# fastest of the Dock's effects. The NSGlobalDomain pair turns off the window
+# open/close zoom and resize tweens; they reach apps as they relaunch.
+# Idempotent, and the Dock only restarts when the minimize effect actually moved.
+speed_up_window_animations() {
+  log_info "Speeding up window animations (minimize=scale, no zoom/resize tween)."
+  local effect_before
+  effect_before="$(defaults read com.apple.dock mineffect 2>/dev/null || true)"
+  defaults write com.apple.dock mineffect -string "scale" || log_warn "defaults write for mineffect failed."
+  defaults write com.apple.dock launchanim -bool false
+  defaults write NSGlobalDomain NSAutomaticWindowAnimationsEnabled -bool false
+  defaults write NSGlobalDomain NSWindowResizeTime -float 0.001
+  if [[ "$effect_before" != "scale" ]]; then
+    killall Dock 2>/dev/null || true
+    log_info "Restarted the Dock to apply the minimize effect."
+  fi
+}
+
 set_fish_default_shell() {
   command -v fish &>/dev/null || return 0
   local fish_path
