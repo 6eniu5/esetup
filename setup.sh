@@ -1015,6 +1015,10 @@ main() {
     # `lua` is 5.5 and `luajit` is 5.1-compatible, so either would test a
     # different language from the one the code actually runs on.
     lua@5.4
+    # Media pipeline for the /watch skill (skills/6eniu5/watch): yt-dlp fetches
+    # captions/audio, ffmpeg cuts frames, uv installs the mlx-whisper ASR tool
+    # (see modules/watch-media.sh for that non-Artifact step).
+    yt-dlp ffmpeg uv
   )
   for f in "${formulas[@]}"; do
     brew_install_formula "$f" "$f"
@@ -1110,6 +1114,7 @@ main() {
 
   run_fnm_default_node || record_failed "node" "fnm default-node setup failed"
   run_rustup_default_toolchain || record_failed "rust" "rustup toolchain setup failed"
+  run_mlx_whisper_tool || record_failed "mlx-whisper" "uv tool install failed"
 
   optional_karabiner_manager || record_failed "karabiner-manager" "karabiner build/config failed"
 
@@ -1174,6 +1179,7 @@ source "${MODULES_DIR}/dotfiles.sh"
 source "${MODULES_DIR}/identity.sh"
 source "${MODULES_DIR}/node.sh"
 source "${MODULES_DIR}/rust.sh"
+source "${MODULES_DIR}/watch-media.sh"
 source "${MODULES_DIR}/karabiner.sh"
 source "${MODULES_DIR}/voiceink.sh"
 source "${MODULES_DIR}/miniconda.sh"
