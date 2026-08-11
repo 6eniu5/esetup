@@ -1132,6 +1132,7 @@ main() {
   # return 0 by design (one broken Artifact must not stop the rest). A wrapper here
   # would be unreachable.
   optional_gcloud
+  optional_db_tunnel
   optional_dotnet
   optional_dotnet_versioned
 
@@ -1185,6 +1186,7 @@ source "${MODULES_DIR}/voiceink.sh"
 source "${MODULES_DIR}/miniconda.sh"
 source "${MODULES_DIR}/sdkman.sh"
 source "${MODULES_DIR}/gcloud.sh"
+source "${MODULES_DIR}/db-tunnel.sh"
 source "${MODULES_DIR}/dotnet.sh"
 source "${MODULES_DIR}/obsidian.sh"
 source "${MODULES_DIR}/macos.sh"
