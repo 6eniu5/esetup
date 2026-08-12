@@ -34,23 +34,34 @@ key="${HOME_SSH_KEY/#\~/$HOME}"
 [[ -n "${HOME_SSH_KEY:-}" && -f "$key" ]] && ok "ssh key present ($HOME_SSH_KEY)" || pend "ssh key not found locally"
 
 # 4. Reachability + auth to the home pivot
-if [[ -n "${HOME_PIVOT:-}" ]] && nc -z -G 4 "$HOME_PIVOT" 22 >/dev/null 2>&1; then
-  ok "home Mac reachable on :22 ($HOME_PIVOT)"
-  if [[ -n "${HOME_USER:-}" && -f "$key" ]]; then
-    if ssh -o BatchMode=yes -o ConnectTimeout=6 -i "$key" -o IdentitiesOnly=yes \
-         "${HOME_USER}@${HOME_PIVOT}" true 2>/dev/null; then
-      ok "passwordless SSH works"
-    else
-      pend "SSH key not yet authorized on the home Mac"
-    fi
-  fi
+#
+# SSH is the authoritative test - it is the thing db-tunnel.sh actually needs -
+# so it runs first and decides. A cheap `nc` probe only runs afterwards, to
+# explain a failure. The reverse (nc gating ssh) reported the pivot dead
+# whenever Tailscale was relaying through DERP: a cold relay costs well over the
+# 4s the probe allowed, while SSH itself connects fine given a moment. Never let
+# a fast proxy metric overrule the slower measurement that is the real question.
+if [[ -n "${HOME_PIVOT:-}" && -n "${HOME_USER:-}" && -f "$key" ]] \
+   && ssh -o BatchMode=yes -o ConnectTimeout=20 -i "$key" -o IdentitiesOnly=yes \
+          "${HOME_USER}@${HOME_PIVOT}" true 2>/dev/null; then
+  ok "home Mac reachable and passwordless SSH works ($HOME_PIVOT)"
+elif [[ -n "${HOME_PIVOT:-}" ]] && nc -z -G 20 "$HOME_PIVOT" 22 >/dev/null 2>&1; then
+  # Port open but SSH refused: the path is fine, the credential is not.
+  pend "home Mac reachable on :22 but SSH key not accepted - authorize it there"
 else
-  pend "home Mac not reachable (Tailscale down on one end?)"
+  pend "home Mac not reachable (Tailscale down on one end, or still relaying?)"
 fi
 
 # 5. Exit node (GUI mode)
+#
+# `exit-node list` queries the control plane and is flaky when Tailscale is
+# relaying through DERP - measured 1 pass in 3 while the datacentre was policing
+# UDP, which reported the exit node missing when it was there the whole time.
+# `status` reads the local daemon's cached netmap instead: no round trip, 6 of 6
+# in the same conditions. Prefer local state for a question local state can
+# answer.
 if [[ -n "$TS" ]]; then
-  if "$TS" exit-node list 2>/dev/null | grep -q "${EXIT_NODE:-__none__}"; then
+  if "$TS" status 2>/dev/null | grep -F "${EXIT_NODE:-__none__}" | grep -q "offers exit node"; then
     ok "exit node advertised & approved (${EXIT_NODE})"
   else
     pend "exit node not available yet (advertise on home + approve in admin console)"
