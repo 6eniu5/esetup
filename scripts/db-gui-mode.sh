@@ -26,7 +26,41 @@ else
   echo "tailscale CLI not found (is the app installed?)" >&2; exit 1
 fi
 
-show_ip() { curl -s --max-time 8 https://api.ipify.org && echo || echo "(could not reach ipify)"; }
+# Literal address on purpose: cdn-cgi/trace needs no DNS, so a resolver problem
+# cannot masquerade as "no connectivity". api.ipify.org needed both DNS and TCP
+# and reported the same unhelpful string whichever failed.
+show_ip() {
+  curl -s --max-time 10 https://1.1.1.1/cdn-cgi/trace 2>/dev/null | awk -F= '/^ip=/{print $2}'
+}
+
+# Ask the local daemon, not the control plane. `tailscale exit-node list` passed
+# 1 run in 3 while relaying through DERP; `status` reads the cached netmap and
+# was 6 of 6 in the same conditions.
+exit_node_state() {
+  local line
+  line=$("$TS" status 2>/dev/null | grep -F "${EXIT_NODE:-__none__}" || true)
+  if   [[ -z "$line" ]];                     then echo "absent"
+  elif grep -q "offers exit node" <<<"$line"; then echo "available"
+  elif grep -q "exit node"        <<<"$line"; then echo "in-use"
+  else                                             echo "peer-present"
+  fi
+}
+
+# The failure this exists to catch: with the exit node engaged, ICMP and DNS pass
+# while every TCP connection hangs. That is the tunnel MTU exceeding what the
+# underlying path carries - seen 12 Aug 2026, Tailscale at 1280 inside
+# L2TP(1280)->GRE(1280), silently dropping every full-size packet. Ping is not
+# evidence that the path works.
+diagnose_no_tcp() {
+  if ping -c 2 -t 5 8.8.8.8 >/dev/null 2>&1; then
+    local iface
+    iface=$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')
+    echo "  ICMP works but TCP does not - almost certainly tunnel MTU."
+    echo "  try: sudo ifconfig ${iface:-utun5} mtu 1100"
+  else
+    echo "  no ICMP either - the exit node itself is unreachable."
+  fi
+}
 
 case "${1:-status}" in
   on)
@@ -42,8 +76,20 @@ case "${1:-status}" in
     echo -n "public IP now: "; show_ip
     ;;
   status)
-    echo -n "current public IP: "; show_ip
-    echo "(if this matches your home IP, home-egress is active)"
+    state=$(exit_node_state)
+    case "$state" in
+      in-use)      echo "exit node ACTIVE  -> ${EXIT_NODE}" ;;
+      available)   echo "exit node off (${EXIT_NODE} is advertising, not in use)" ;;
+      peer-present) echo "peer ${EXIT_NODE} visible but not offering an exit node" ;;
+      absent)      echo "peer ${EXIT_NODE} not in the tailnet right now" ;;
+    esac
+    ip=$(show_ip)
+    if [[ -n "$ip" ]]; then
+      echo "public IP: $ip"
+    else
+      echo "public IP: unreachable"
+      [[ "$state" == "in-use" ]] && diagnose_no_tcp
+    fi
     ;;
   *)
     echo "usage: $(basename "$0") [on|off|status]" >&2; exit 2 ;;
