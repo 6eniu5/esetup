@@ -140,12 +140,22 @@ build_content() {
 
 # Reproduces what `stow --no-folding` would leave behind. Never clobbers a real file it
 # did not create -- that is someone's hand-written config, not ours to overwrite.
+#
+# The link MUST be RELATIVE, exactly as stow writes it. This file is also a tracked
+# member of the Dotfiles Repo's `fish` stow package, so stow owns the same target.
+# An absolute link here is not recognised by `stow -D` as stow-owned, so the repo's
+# ./install cannot unstow it and then aborts re-stowing the entire `fish` package on
+# the conflict -- and because ./install unstows every package before re-stowing, that
+# single conflict used to leave all of $HOME unstowed. abs2rel is purely lexical, the
+# same computation stow performs.
 link_live() {
-  local src="$1"
+  local src="$1" rel
+  rel="$(perl -MFile::Spec -e 'print File::Spec->abs2rel($ARGV[0], $ARGV[1])' \
+    "$src" "$(dirname "$LIVE_CONF")")"
   if [[ -L "$LIVE_CONF" ]]; then
-    [[ "$(readlink "$LIVE_CONF")" == "$src" ]] && return 0
-    ln -sfn "$src" "$LIVE_CONF"
-    log_info "Repointed ${LIVE_CONF} -> ${src}"
+    [[ "$(readlink "$LIVE_CONF")" == "$rel" ]] && return 0
+    ln -sfn "$rel" "$LIVE_CONF"
+    log_info "Repointed ${LIVE_CONF} -> ${rel}"
     return 0
   fi
   if [[ -e "$LIVE_CONF" ]]; then
@@ -154,8 +164,8 @@ link_live() {
     return 0
   fi
   mkdir -p "$(dirname "$LIVE_CONF")"
-  ln -s "$src" "$LIVE_CONF"
-  log_info "Linked ${LIVE_CONF} -> ${src}"
+  ln -s "$rel" "$LIVE_CONF"
+  log_info "Linked ${LIVE_CONF} -> ${rel}"
 }
 
 remove_generated() {
