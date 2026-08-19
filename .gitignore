@@ -8,3 +8,10 @@ identity/
 
 # Client prod DB credentials for the db-tunnel module. Public repo — never commit.
 scripts/db-tunnel.env
+# ...and any local variant of it. `scripts/db-tunnel.env` alone did not cover
+# `db-tunnel.env.bak`, which sat untracked in the working tree carrying real
+# production credentials while `git status` offered it up for commit like any
+# other new file. The .example is the only member of this family that belongs
+# in the repo.
+scripts/*.env.*
+!scripts/*.env.example
